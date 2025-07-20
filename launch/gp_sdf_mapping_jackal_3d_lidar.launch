@@ -1,0 +1,63 @@
+<launch>
+    <arg name="precision" default="float" />  <!-- Options: float, double -->
+    <arg name="surf_mapping_method" default="gp_occ" /> <!-- Options: gp_occ, bayesian_hilbert -->
+    <arg name="visualize_sdf" default="false" /> <!-- whether to launch the sdf visualization node -->
+    <arg name="robot_name" default="jackal2" />
+
+    <node pkg="tf2_ros" type="static_transform_publisher" name="map_odom_transformer"
+        args="0 0 0 0 0 0 1 map odom" />
+    <node pkg="erl_gp_sdf" type="sdf_mapping_node" name="sdf_mapping_node"
+        output="screen">
+        <!-- setting_file provides the basic setting, you should override it with param entries -->
+        <param name="setting_file"
+            value="$(find erl_gp_sdf)/config/ros_launch_$(arg surf_mapping_method)_$(arg precision)_3d.yaml" />
+        <param name="surface_mapping_setting_file"
+            value="$(find erl_gp_sdf)/config/$(arg surf_mapping_method)_mapping_jackal_3d_lidar_$(arg precision).yaml" />
+        <param name="sdf_mapping_setting_file"
+            value="$(find erl_gp_sdf)/config/sdf_mapping_jackal_3d_lidar_$(arg precision).yaml" />
+        <param name="use_odom" value="false" /> <!-- set it to true if you want to use odom_topic-->
+        <param name="odom_topic" value="/$(arg robot_name)/dlo/odom_node/odom" />
+        <!-- or /jackal2/dlo/odom_node/pose ? -->
+
+        <param name="world_frame" value="map" /><!-- Need to check if this is correct -->
+        <param name="sensor_frame" value="front_laser" /><!-- Need to check if this is correct -->
+
+        <param name="scan_type" value="sensor_msgs/PointCloud2" />
+        <param name="scan_in_local_frame" value="true" /><!-- Need to check if this is correct -->
+
+        <!-- The unit of depth from the sensor if you use depth camera -->
+        <param name="depth_scale" value="0.001" /> <!-- Need to check if this is correct -->
+
+        <param name="scan_topic" value="/$(arg robot_name)/ouster/points" />
+        <!-- Need to update the scan topic if it is wrong -->
+    </node>
+
+    <group if="$(arg visualize_sdf)">
+        <node pkg="erl_gp_sdf" type="sdf_visualization_node" name="sdf_visualization_node"
+            output="screen">
+            <param name="resolution" value="0.25" />
+            <param name="x_cells" value="101" />
+            <param name="y_cells" value="101" />
+            <param name="x" value="7.5" />
+            <param name="y" value="-5.5" />
+            <param name="z" value="0.0" />
+            <param name="publish_gradient" value="true" />
+            <param name="publish_sdf_variance" value="true" />
+            <param name="publish_gradient_variance" value="true" />
+            <param name="publish_covariance" value="true" />
+            <param name="publish_grid_map" value="true" />
+            <param name="publish_point_cloud" value="true" />
+            <param name="publish_rate" value="20.0" />
+            <param name="attached_to_frame" value="false" />
+            <param name="world_frame" value="map" />
+            <param name="service_name" value="/sdf_mapping_node/sdf_query" />
+            <param name="map_topic_name" value="sdf_grid_map" />
+            <param name="point_cloud_topic_name" value="sdf_point_cloud" />
+        </node>
+        <node pkg="rviz" type="rviz" name="rviz"
+            args="-d $(find erl_gp_sdf)/rviz/gazebo_room_2d.rviz" />
+        <!-- You need to create a new rviz -->
+        <node pkg="rqt_plot" type="rqt_plot" name="rqt_plot"
+            args="/sdf_mapping_node/update_time/temperature /sdf_mapping_node/query_time/temperature" />
+    </group>
+</launch>

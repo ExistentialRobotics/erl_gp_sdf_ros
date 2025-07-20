@@ -1,0 +1,59 @@
+<launch>
+    <!-- Options: float, double -->
+    <arg name="precision" default="float" />
+    <!-- Options: gp_occ, bayesian_hilbert -->
+    <arg name="surf_mapping_method" default="gp_occ" />
+    <!-- whether to launch the sdf visualization node -->
+    <arg name="visualize_sdf" default="true" />
+    <!-- whether to launch rviz for visualization -->
+    <arg name="open_rviz" default="true" />
+    <!-- whether to launch rqt_plot for performance analysis -->
+    <arg name="open_rqt_plot" default="true" />
+
+    <node pkg="erl_geometry" type="gazebo_room_2d_node" name="gazebo_room_2d_node" output="screen">
+        <param name="laser_frame" value="front_laser" />
+        <param name="map_frame" value="map" />
+        <param name="topic_name" value="scan" />
+        <param name="publish_rate" value="60.0" />
+    </node>
+    <node pkg="tf2_ros" type="static_transform_publisher" name="map_odom_transformer" args="0 0 0 0 0 0 1 map odom" />
+    <node pkg="erl_gp_sdf" type="sdf_mapping_node" name="sdf_mapping_node" output="screen">
+        <param name="map_dim" value="2" />
+        <param name="double_precision" value="$(eval precision == 'double')" />
+        <param name="setting_file" value="$(find erl_gp_sdf)/config/ros1/ros_launch_$(arg surf_mapping_method)_$(arg precision)_2d.yaml" />
+        <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf)/config/gazebo/$(arg surf_mapping_method)_mapping_gazebo_2d_$(arg precision).yaml" />
+        <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf)/config/gazebo/$(arg surf_mapping_method)_sdf_mapping_gazebo_2d_$(arg precision).yaml" />
+        <param name="scan_topic" value="/gazebo_room_2d_node/scan" />
+        <param name="scan_frame_setting_file" value="$(find erl_gp_sdf)/config/gazebo/lidar_frame_2d.yaml" />
+    </node>
+    <group if="$(arg visualize_sdf)">
+        <node pkg="erl_gp_sdf" type="sdf_visualization_node" name="sdf_visualization_node" output="screen">
+            <param name="resolution" value="0.07" />
+            <param name="x_cells" value="401" />
+            <param name="y_cells" value="401" />
+            <param name="x" value="7.5" />
+            <param name="y" value="-5.5" />
+            <param name="z" value="0.0" />
+            <param name="publish_gradient" value="true" />
+            <param name="publish_sdf_variance" value="true" />
+            <param name="publish_gradient_variance" value="true" />
+            <param name="publish_covariance" value="false" />
+            <param name="publish_grid_map" value="true" />
+            <param name="publish_point_cloud" value="true" />
+            <param name="publish_rate" value="20.0" />
+            <param name="attached_to_frame" value="false" />
+            <param name="world_frame" value="map" />
+            <param name="service_name" value="/sdf_mapping_node/sdf_query" />
+            <param name="map_topic_name" value="sdf_grid_map" />
+            <param name="point_cloud_topic_name" value="sdf_point_cloud" />
+        </node>
+    </group>
+
+    <group if="$(arg open_rviz)">
+        <node pkg="rviz" type="rviz" name="rviz" args="-d $(find erl_gp_sdf)/rviz/gazebo_room_2d.rviz" />
+    </group>
+
+    <group if="$(arg open_rqt_plot)">
+        <node pkg="rqt_plot" type="rqt_plot" name="rqt_plot" args="/sdf_mapping_node/update_time/temperature /sdf_mapping_node/query_time/temperature" />
+    </group>
+</launch>

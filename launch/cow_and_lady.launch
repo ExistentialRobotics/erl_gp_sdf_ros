@@ -1,0 +1,86 @@
+<launch>
+    <!-- path to cow_and_lady.bag for testing -->
+    <arg name="cow_and_lady_bag" default="$(env HOME)/Data/CowAndLady/data.bag" />
+    <!-- path to ground truth point cloud for visualization -->
+    <arg name="gt_point_cloud_file" default="$(env HOME)/Data/CowAndLady/cow_and_lady_gt.ply" />
+    <!-- Options: float, double -->
+    <arg name="precision" default="float" />
+    <!-- Options: gp_occ, bayesian_hilbert -->
+    <arg name="surf_mapping_method" default="gp_occ" />
+    <!-- whether to launch the sdf visualization node -->
+    <arg name="visualize_sdf" default="true" />
+    <!-- whether to launch rviz for visualization -->
+    <arg name="open_rviz" default="true" />
+    <!-- whether to launch rqt_plot for performance analysis -->
+    <arg name="open_rqt_plot" default="true" />
+    <!-- playback rate for rosbag -->
+    <arg name="rosbag_play_rate" default="6.0" />
+
+    <!-- use - -clock option to make rosbag_play publish /clock. But this bag does not have /clock or tf data. -->
+    <node pkg="rosbag" type="play" name="rosbag_play" args="$(arg cow_and_lady_bag) --rate=$(arg rosbag_play_rate) --start=5 --duration=128" output="screen"/>
+
+    <node pkg="tf2_ros" type="static_transform_publisher" name="map_odom_transformer" args="0 0 0 0 0 0 1 map odom" />
+    <node pkg="tf2_ros" type="static_transform_publisher" name="map_vicon_transformer" args="0 0 0 0 0 0 1 map vicon" />
+    <node pkg="tf2_ros" type="static_transform_publisher" name="kinect_optical_transformer" args="0.00114049  0.0450936  0.0430765 0.0924132 0.0976455 0.0702949  0.988425 kinect camera_rgb_optical_frame" />
+    <node pkg="tf2_ros" type="static_transform_publisher" name="optical_camera_transformer" args="0 0 0 0.5 0.5 -0.5 0.5 camera_rgb_optical_frame camera_frame" />
+    <node pkg="erl_common" type="transform_to_tf_node" name="transform_to_tf_node" output="screen">
+        <!-- transform from vicon to kinect -->
+        <param name="transform_topic" value="/kinect/vrpn_client/estimated_transform" />
+    </node>
+
+    <node pkg="erl_geometry" type="point_cloud_node" name="gt_point_cloud_node" output="screen">
+        <param name="frame_id" value="map" />
+        <param name="point_cloud_file" value="$(arg gt_point_cloud_file)" />
+        <param name="publish_colors" value="true" />
+    </node>
+
+    <node pkg="erl_gp_sdf" type="sdf_mapping_node" name="sdf_mapping_node" output="screen">
+        <param name="map_dim" value="3" />
+        <param name="double_precision" value="$(eval precision == 'double')" />
+        <param name="setting_file" value="$(find erl_gp_sdf)/config/ros1/ros_launch_$(arg surf_mapping_method)_$(arg precision)_3d.yaml" />
+        <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf)/config/cow_and_lady/$(arg surf_mapping_method)_mapping_cow_and_lady_$(arg precision).yaml" />
+        <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf)/config/cow_and_lady/$(arg surf_mapping_method)_sdf_mapping_cow_and_lady_$(arg precision).yaml" />
+        <param name="use_odom" value="false" />
+        <param name="odom_topic" value="/kinect/vrpn_client/estimated_transform" />
+        <param name="odom_msg_type" value="geometry_msgs/TransformStamped" />
+        <param name="sensor_frame" value="camera_rgb_optical_frame" />
+        <param name="scan_topic" value="/camera/depth_registered/points" />
+        <param name="scan_type" value="sensor_msgs/PointCloud2" />
+        <param name="scan_frame_setting_file" value="$(find erl_gp_sdf)/config/cow_and_lady/depth_frame.yaml" />
+        <param name="scan_stride" value="2" />
+        <param name="scan_in_local_frame" value="true" />
+        <param name="publish_tree" value="false" />
+    </node>
+
+    <group if="$(arg visualize_sdf)">
+        <node pkg="erl_gp_sdf" type="sdf_visualization_node" name="sdf_visualization_node" output="screen">
+            <!-- <param name="resolution" value="0.05" /> -->
+            <param name="resolution" value="0.02" />
+            <param name="x_cells" value="101" />
+            <param name="y_cells" value="101" />
+            <!-- <param name="x" value="0" /> -->
+            <!-- <param name="y" value="-0.5" /> -->
+            <!-- <param name="z" value="0.8" /> -->
+            <param name="x" value="0.0" />
+            <param name="y" value="0.0" />
+            <param name="z" value="0.0" />
+            <param name="publish_gradient" value="true" />
+            <param name="publish_sdf_variance" value="true" />
+            <param name="publish_gradient_variance" value="true" />
+            <param name="publish_covariance" value="false" />
+            <param name="publish_grid_map" value="true" />
+            <param name="publish_point_cloud" value="true" />
+            <param name="publish_rate" value="5.0" />
+            <param name="attached_to_frame" value="true" />
+            <param name="world_frame" value="map" />
+            <param name="attached_frame" value="camera_frame" />
+            <param name="service_name" value="/sdf_mapping_node/sdf_query" />
+            <param name="map_topic_name" value="sdf_grid_map" />
+            <param name="point_cloud_topic_name" value="sdf_point_cloud" />
+        </node>
+    </group>
+
+    <group if="$(arg open_rviz)">
+        <node pkg="rviz" type="rviz" name="rviz" args="-d $(find erl_geometry)/rviz/cow_and_lady.rviz" />
+    </group>
+</launch>
