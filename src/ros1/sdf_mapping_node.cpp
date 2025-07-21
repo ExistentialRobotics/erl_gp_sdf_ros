@@ -5,22 +5,22 @@
 #include "erl_geometry/depth_frame_3d.hpp"
 #include "erl_geometry/lidar_frame_2d.hpp"
 #include "erl_geometry/lidar_frame_3d.hpp"
-#include "erl_geometry/ros_msgs/occupancy_tree_msg.hpp"
+#include "erl_geometry_msgs/ros1/occupancy_tree_msg.hpp"
 #include "erl_gp_sdf/bayesian_hilbert_surface_mapping.hpp"
 #include "erl_gp_sdf/gp_occ_surface_mapping.hpp"
 #include "erl_gp_sdf/gp_sdf_mapping.hpp"
-#include "erl_gp_sdf/SaveMap.h"
-#include "erl_gp_sdf/SdfQuery.h"
+#include "erl_gp_sdf_msgs/SaveMap.h"
+#include "erl_gp_sdf_msgs/SdfQuery.h"
 
 #include <geometry_msgs/Vector3.h>
 #include <nav_msgs/Odometry.h>
 #include <ros/ros.h>
 #include <rviz/default_plugin/point_cloud_transformers.h>
 #include <sensor_msgs/Image.h>
-#include <sensor_msgs/image_encodings.h>
 #include <sensor_msgs/LaserScan.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <sensor_msgs/Temperature.h>
+#include <sensor_msgs/image_encodings.h>
 #include <tf/transform_datatypes.h>
 #include <tf2_eigen/tf2_eigen.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -135,7 +135,7 @@ class SdfMappingNode {
     ros::Publisher m_pub_query_time_;
     ros::Timer m_pub_tree_timer_;
     ros::Timer m_pub_surface_points_timer_;
-    erl_geometry::OccupancyTreeMsg m_msg_tree_;
+    erl_geometry_msgs::OccupancyTreeMsg m_msg_tree_;
     sensor_msgs::PointCloud2 m_msg_surface_points_;
     sensor_msgs::Temperature m_msg_update_time_;
     sensor_msgs::Temperature m_msg_query_time_;
@@ -298,7 +298,7 @@ public:
                 ros::shutdown();
                 return;
             }
-            m_pub_tree_ = m_nh_.advertise<erl_geometry::OccupancyTreeMsg>(
+            m_pub_tree_ = m_nh_.advertise<erl_geometry_msgs::OccupancyTreeMsg>(
                 m_setting_.publish_tree_topic,
                 1,
                 true);
@@ -990,7 +990,9 @@ private:
 
     // --- service handler: runs Test() on the current map ---
     bool
-    CallbackSdfQuery(erl_gp_sdf::SdfQuery::Request& req, erl_gp_sdf::SdfQuery::Response& res) {
+    CallbackSdfQuery(
+        erl_gp_sdf_msgs::SdfQuery::Request& req,
+        erl_gp_sdf_msgs::SdfQuery::Response& res) {
 
         if (!m_sdf_mapping_) {
             ERL_WARN("SDF mapping is not initialized");
@@ -1104,7 +1106,9 @@ private:
     }
 
     bool
-    CallbackSaveMap(erl_gp_sdf::SaveMap::Request& req, erl_gp_sdf::SaveMap::Response& res) {
+    CallbackSaveMap(
+        erl_gp_sdf_msgs::SaveMap::Request& req,
+        erl_gp_sdf_msgs::SaveMap::Response& res) {
         if (!m_sdf_mapping_) {
             ERL_WARN("SDF mapping is not initialized");
             res.success = false;

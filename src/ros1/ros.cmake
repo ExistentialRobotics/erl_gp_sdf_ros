@@ -1,7 +1,7 @@
 message(STATUS "ROS1 activated, building ROS1 stuff")
 
 add_executable(sdf_mapping_node src/ros1/sdf_mapping_node.cpp)
-erl_target_dependencies(sdf_mapping_node PRIVATE erl_gp_sdf)
+erl_target_dependencies(sdf_mapping_node)
 erl_collect_targets(EXECUTABLES sdf_mapping_node)
 
 add_executable(sdf_visualization_node src/ros1/sdf_visualization_node.cpp)

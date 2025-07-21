@@ -24,6 +24,8 @@
     <depend>tf2_eigen</depend>
     <depend>tf2_geometry_msgs</depend>
     <depend>tf2_ros</depend>
+    <depend condition="$ROS_VERSION == 1">rviz</depend>
+    <depend condition="$ROS_VERSION == 2">rviz_default_plugins</depend>
 
     <!-- ERL dependencies -->
     <depend>erl_common</depend>
@@ -43,12 +45,16 @@
 
     <!-- Optional, needed to visualize grid_map in rviz -->
     <!-- <exec_depend>grid_map_rviz_plugin</exec_depend> -->
+    <exec_depend>erl_geometry_rviz_plugin</exec_depend>
 
     <test_depend condition="$ROS_VERSION == 1">rosunit</test_depend>
     <test_depend>erl_common</test_depend>
     <test_depend>erl_covariance</test_depend>
     <test_depend>erl_geometry</test_depend>
+    <test_depend>erl_geometry_msgs</test_depend>
     <test_depend>erl_gaussian_process</test_depend>
+    <test_depend>erl_gp_sdf</test_depend>
+    <test_depend>erl_gp_sdf_msgs</test_depend>
 
     <export>
         <build_type condition="$ROS_VERSION == 2">ament_cmake</build_type>

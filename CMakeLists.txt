@@ -20,6 +20,8 @@ erl_setup_ros(
     tf2_eigen
     grid_map_ros
     grid_map_msgs
+    erl_gp_sdf_msgs
+    erl_geometry_msgs
     rviz
     #
     CATKIN_DEPENDS
@@ -32,6 +34,8 @@ erl_setup_ros(
     tf2_eigen
     grid_map_ros
     grid_map_msgs
+    erl_gp_sdf_msgs
+    erl_geometry_msgs
     rviz
     #
     ROS2_COMPONENTS
