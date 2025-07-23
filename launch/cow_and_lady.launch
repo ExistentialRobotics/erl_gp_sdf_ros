@@ -23,23 +23,23 @@
     <node pkg="tf2_ros" type="static_transform_publisher" name="map_vicon_transformer" args="0 0 0 0 0 0 1 map vicon" />
     <node pkg="tf2_ros" type="static_transform_publisher" name="kinect_optical_transformer" args="0.00114049  0.0450936  0.0430765 0.0924132 0.0976455 0.0702949  0.988425 kinect camera_rgb_optical_frame" />
     <node pkg="tf2_ros" type="static_transform_publisher" name="optical_camera_transformer" args="0 0 0 0.5 0.5 -0.5 0.5 camera_rgb_optical_frame camera_frame" />
-    <node pkg="erl_common" type="transform_to_tf_node" name="transform_to_tf_node" output="screen">
+    <node pkg="erl_common_ros" type="transform_to_tf_node" name="transform_to_tf_node" output="screen">
         <!-- transform from vicon to kinect -->
         <param name="transform_topic" value="/kinect/vrpn_client/estimated_transform" />
     </node>
 
-    <node pkg="erl_geometry" type="point_cloud_node" name="gt_point_cloud_node" output="screen">
+    <node pkg="erl_geometry_ros" type="point_cloud_node" name="gt_point_cloud_node" output="screen">
         <param name="frame_id" value="map" />
         <param name="point_cloud_file" value="$(arg gt_point_cloud_file)" />
         <param name="publish_colors" value="true" />
     </node>
 
-    <node pkg="erl_gp_sdf" type="sdf_mapping_node" name="sdf_mapping_node" output="screen">
+    <node pkg="erl_gp_sdf_ros" type="sdf_mapping_node" name="sdf_mapping_node" output="screen">
+        <rosparam command="load" file="$(find erl_gp_sdf_ros)/config/ros1/$(arg surf_mapping_method)_$(arg precision)_3d.yaml" />
         <param name="map_dim" value="3" />
         <param name="double_precision" value="$(eval precision == 'double')" />
-        <param name="setting_file" value="$(find erl_gp_sdf)/config/ros1/ros_launch_$(arg surf_mapping_method)_$(arg precision)_3d.yaml" />
-        <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf)/config/cow_and_lady/$(arg surf_mapping_method)_mapping_cow_and_lady_$(arg precision).yaml" />
-        <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf)/config/cow_and_lady/$(arg surf_mapping_method)_sdf_mapping_cow_and_lady_$(arg precision).yaml" />
+        <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf)/config/cow_and_lady/$(arg surf_mapping_method)_surf_mapping_$(arg precision).yaml" />
+        <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf)/config/cow_and_lady/$(arg surf_mapping_method)_sdf_mapping_$(arg precision).yaml" />
         <param name="use_odom" value="false" />
         <param name="odom_topic" value="/kinect/vrpn_client/estimated_transform" />
         <param name="odom_msg_type" value="geometry_msgs/TransformStamped" />
@@ -53,7 +53,7 @@
     </node>
 
     <group if="$(arg visualize_sdf)">
-        <node pkg="erl_gp_sdf" type="sdf_visualization_node" name="sdf_visualization_node" output="screen">
+        <node pkg="erl_gp_sdf_ros" type="sdf_visualization_node" name="sdf_visualization_node" output="screen">
             <!-- <param name="resolution" value="0.05" /> -->
             <param name="resolution" value="0.02" />
             <param name="x_cells" value="101" />
@@ -81,6 +81,6 @@
     </group>
 
     <group if="$(arg open_rviz)">
-        <node pkg="rviz" type="rviz" name="rviz" args="-d $(find erl_geometry)/rviz/cow_and_lady.rviz" />
+        <node pkg="rviz" type="rviz" name="rviz" args="-d $(find erl_gp_sdf_ros)/rviz/cow_and_lady.rviz" />
     </group>
 </launch>

@@ -1,0 +1,35 @@
+/zed/zed_node/point_cloud/cloud_registered
+sensor_msgs/PointCloud2
+
+header:
+  seq: 463
+  stamp:
+    secs: 1749367284
+    nsecs: 448662845
+  frame_id: "zed_left_camera_frame"
+height: 360
+width: 640
+fields:
+  -
+    name: "x"
+    offset: 0
+    datatype: 7
+    count: 1
+  -
+    name: "y"
+    offset: 4
+    datatype: 7
+    count: 1
+  -
+    name: "z"
+    offset: 8
+    datatype: 7
+    count: 1
+  -
+    name: "rgb"
+    offset: 12
+    datatype: 7
+    count: 1
+is_bigendian: False
+point_step: 16
+row_step: 10240

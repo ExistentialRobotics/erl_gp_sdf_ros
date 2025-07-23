@@ -1,0 +1,60 @@
+local_bhm:
+    bhm:
+        diagonal_sigma: true
+        min_distance: 0.6
+        max_distance: 30
+        free_points_per_meter: 2
+        free_sampling_margin: 0.001
+        init_mu: 0.0
+        init_sigma: 10000
+        num_em_iterations: 2
+        sparse_zero_threshold: 1.0e-3
+        use_sparse: true
+    kernel_type: erl::covariance::RadialBiasFunction<float, 3>
+    kernel_setting_type: erl::covariance::Covariance<float>::Setting
+    kernel:
+        x_dim: 3
+        scale: 0.02
+        scale_mix: 1
+        weights: [ ]
+    max_dataset_size: 1024
+    hit_buffer_size: 0
+    surface_resolution: 0.1
+ray_selector:
+    azimuth_min: -3.141558
+    azimuth_max: 3.141577
+    elevation_min: -0.35
+    elevation_max: 0.3848
+    num_azimuth_angles: 512
+    num_elevation_angles: 32
+tree:
+    resolution: 0.15
+    tree_depth: 16
+    log_odd_min: -10
+    log_odd_max: 10
+    log_odd_hit: 0.85
+    log_odd_miss: -0.4
+    log_odd_occ_threshold: 0
+    use_change_detection: false
+    use_aabb_limit: false
+    aabb:
+        center: [ 0, 0, 0 ]
+        half_sizes: [ 0, 0, 0 ]
+hinged_grid_size: 7
+surface_max_abs_logodd: 2
+surface_bad_abs_logodd: 100
+surface_step_size: 0.001
+faster_prediction: true
+max_adjust_tries: 2
+var_scale: 0.01
+var_max: 1.5
+scaling: 1.0
+bhm_depth: 15
+bhm_overlap: 0.15
+update_with_cuda: false
+cuda_device_id: 0
+update_batch_size: 512
+bhm_test_margin: 0.11
+test_knn: 1
+test_batch_size: 1000
+build_bhm_on_hit: true

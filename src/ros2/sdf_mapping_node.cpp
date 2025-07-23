@@ -186,21 +186,44 @@ public:
             rclcpp::shutdown();
             return;
         }
-        if (!m_surface_mapping_cfg_->FromYamlFile(m_setting_.surface_mapping_setting_file)) {
+        try {
+            if (!m_surface_mapping_cfg_->FromYamlFile(m_setting_.surface_mapping_setting_file)) {
+                RCLCPP_FATAL(
+                    this->get_logger(),
+                    "Failed to load %s with surface mapping type %s",
+                    m_setting_.surface_mapping_setting_file.c_str(),
+                    m_setting_.surface_mapping_type.c_str());
+                rclcpp::shutdown();
+                return;
+            }
+        } catch (const std::exception& e) {
             RCLCPP_FATAL(
                 this->get_logger(),
-                "Failed to load %s",
-                m_setting_.surface_mapping_setting_file.c_str());
+                "Failed to load %s with surface mapping type %s: %s",
+                m_setting_.surface_mapping_setting_file.c_str(),
+                m_setting_.surface_mapping_type.c_str(),
+                e.what());
             rclcpp::shutdown();
             return;
         }
         // load the sdf mapping config
         m_sdf_mapping_cfg_ = std::make_shared<typename GpSdfMapping::Setting>();
-        if (!m_sdf_mapping_cfg_->FromYamlFile(m_setting_.sdf_mapping_setting_file)) {
+        try {
+            if (!m_sdf_mapping_cfg_->FromYamlFile(m_setting_.sdf_mapping_setting_file)) {
+                RCLCPP_FATAL(
+                    this->get_logger(),
+                    "Failed to load %s",
+                    m_setting_.sdf_mapping_setting_file.c_str());
+                rclcpp::shutdown();
+                return;
+            }
+        } catch (const std::exception& e) {
             RCLCPP_FATAL(
                 this->get_logger(),
-                "Failed to load %s",
-                m_setting_.sdf_mapping_setting_file.c_str());
+                "Failed to load %s with SDF mapping type %s: %s",
+                m_setting_.sdf_mapping_setting_file.c_str(),
+                m_setting_.surface_mapping_type.c_str(),
+                e.what());
             rclcpp::shutdown();
             return;
         }
@@ -271,11 +294,23 @@ public:
         if (m_setting_.convert_scan_to_points) {
             if (Dim == 2) {
                 auto frame_setting = std::make_shared<typename LidarFrame2D::Setting>();
-                if (!frame_setting->FromYamlFile(m_setting_.scan_frame_setting_file)) {
+                try {
+                    if (!frame_setting->FromYamlFile(m_setting_.scan_frame_setting_file)) {
+                        RCLCPP_FATAL(
+                            this->get_logger(),
+                            "Failed to load %s with frame type %s",
+                            m_setting_.scan_frame_setting_file.c_str(),
+                            m_setting_.surface_mapping_type.c_str());
+                        rclcpp::shutdown();
+                        return;
+                    }
+                } catch (const std::exception& e) {
                     RCLCPP_FATAL(
                         this->get_logger(),
-                        "Failed to load %s",
-                        m_setting_.scan_frame_setting_file.c_str());
+                        "Failed to load %s with frame type %s: %s",
+                        m_setting_.scan_frame_setting_file.c_str(),
+                        m_setting_.surface_mapping_type.c_str(),
+                        e.what());
                     rclcpp::shutdown();
                     return;
                 }
@@ -285,11 +320,22 @@ public:
                 m_scan_frame_2d_ = std::make_shared<LidarFrame2D>(frame_setting);
             } else if (m_setting_.scan_frame_type == type_name<LidarFrame3D>()) {
                 auto frame_setting = std::make_shared<typename LidarFrame3D::Setting>();
-                if (!frame_setting->FromYamlFile(m_setting_.scan_frame_setting_file)) {
+                try {
+                    if (!frame_setting->FromYamlFile(m_setting_.scan_frame_setting_file)) {
+                        RCLCPP_FATAL(
+                            this->get_logger(),
+                            "Failed to load %s",
+                            m_setting_.scan_frame_setting_file.c_str());
+                        rclcpp::shutdown();
+                        return;
+                    }
+                } catch (const std::exception& e) {
                     RCLCPP_FATAL(
                         this->get_logger(),
-                        "Failed to load %s",
-                        m_setting_.scan_frame_setting_file.c_str());
+                        "Failed to load %s with frame type %s: %s",
+                        m_setting_.scan_frame_setting_file.c_str(),
+                        m_setting_.surface_mapping_type.c_str(),
+                        e.what());
                     rclcpp::shutdown();
                     return;
                 }
@@ -299,11 +345,22 @@ public:
                 m_scan_frame_3d_ = std::make_shared<LidarFrame3D>(frame_setting);
             } else if (m_setting_.scan_frame_type == type_name<DepthFrame3D>()) {
                 auto frame_setting = std::make_shared<typename DepthFrame3D::Setting>();
-                if (!frame_setting->FromYamlFile(m_setting_.scan_frame_setting_file)) {
+                try {
+                    if (!frame_setting->FromYamlFile(m_setting_.scan_frame_setting_file)) {
+                        RCLCPP_FATAL(
+                            this->get_logger(),
+                            "Failed to load %s",
+                            m_setting_.scan_frame_setting_file.c_str());
+                        rclcpp::shutdown();
+                        return;
+                    }
+                } catch (const std::exception& e) {
                     RCLCPP_FATAL(
                         this->get_logger(),
-                        "Failed to load %s",
-                        m_setting_.scan_frame_setting_file.c_str());
+                        "Failed to load %s with frame type %s: %s",
+                        m_setting_.scan_frame_setting_file.c_str(),
+                        m_setting_.surface_mapping_type.c_str(),
+                        e.what());
                     rclcpp::shutdown();
                     return;
                 }
@@ -469,11 +526,21 @@ private:
 
         std::string setting_file;
         if (!LoadParam("setting_file", setting_file)) { return false; }
-        if (!setting_file.empty()) {  // load the setting from the file first
-            if (!m_setting_.FromYamlFile(setting_file)) {
-                RCLCPP_FATAL(this->get_logger(), "Failed to load %s", setting_file.c_str());
-                return false;
+        try {
+            if (!setting_file.empty()) {  // load the setting from the file first
+                if (!m_setting_.FromYamlFile(setting_file)) {
+                    RCLCPP_FATAL(this->get_logger(), "Failed to load %s", setting_file.c_str());
+                    return false;
+                }
             }
+        } catch (const std::exception& e) {
+            RCLCPP_FATAL(
+                this->get_logger(),
+                "Failed to load %s: %s",
+                setting_file.c_str(),
+                e.what());
+            rclcpp::shutdown();
+            return false;
         }
 
         // load the parameters from the node handle

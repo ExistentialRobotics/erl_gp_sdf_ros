@@ -1,0 +1,14 @@
+/zed/zed_node/depth/depth_registered
+sensor_msgs/Image
+
+header:
+  seq: 65
+  stamp:
+    secs: 1749367286
+    nsecs: 548626845
+  frame_id: "zed_left_camera_optical_frame"
+height: 360
+width: 640
+encoding: "32FC1"
+is_bigendian: 0
+step: 2560
