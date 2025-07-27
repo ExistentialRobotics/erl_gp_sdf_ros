@@ -23,18 +23,6 @@ repositories:
         type: git
         url: https://github.com/ExistentialRobotics/erl_geometry.git
         version: v0.1.0
-    erl_geometry_msgs:
-        type: git
-        url: https://github.com/ExistentialRobotics/erl_geometry_msgs.git
-        version: v0.1.0
-    erl_geometry_ros:
-        type: git
-        url: https://github.com/ExistentialRobotics/erl_geometry_ros.git
-        version: v0.1.0
-    erl_geometry_rviz_plugin:
-        type: git
-        url: https://github.com/ExistentialRobotics/erl_geometry_rviz_plugin.git
-        version: v0.1.0
     erl_gp_sdf:
         type: git
         url: https://github.com/ExistentialRobotics/erl_gp_sdf.git

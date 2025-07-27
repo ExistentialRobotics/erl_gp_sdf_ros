@@ -10,7 +10,7 @@
 
 **A ROS package for Gaussian Process regression on Signed Distance Fields.**
 
-`erl_gp_sdf_ros` is a ROS wrapper package for the [erl_gp_sdf](https://github.com/ExistentialRobotics/erl_gp_sdf) library, providing nodes for real-time SDF mapping and visualization using Gaussian Process regression. The package supports both ROS1 (Noetic) and ROS2 (Humble) distributions.
+`erl_gp_sdf_ros` is a ROS wrapper package for the 🚪[erl_gp_sdf](https://github.com/ExistentialRobotics/erl_gp_sdf) library, providing nodes for real-time SDF mapping and visualization using Gaussian Process regression. The package supports both ROS1 (Noetic) and ROS2 (Humble) distributions.
 
 ## Features
 
@@ -29,19 +29,36 @@
 - C++17 compatible compiler
 - CMake 3.24 or higher
 
+### Create Workspace
+
+```bash
+mkdir -p <your_workspace>/src && \
+vcs import --input https://raw.githubusercontent.com/ExistentialRobotics/erl_gp_sdf_ros/refs/head/main/erl_gp_sdf_ros.repos <your_workspace>/src
+```
+
 ### Dependencies
 
 This package depends on the following ERL packages:
-- `erl_cmake_tools`
-- `erl_common`
-- `erl_common_ros`
-- `erl_covariance`
-- `erl_gaussian_process`
-- `erl_geometry`
-- `erl_geometry_msgs`
-- `erl_geometry_ros`
-- `erl_gp_sdf`
-- `erl_gp_sdf_msgs`
+- [erl_cmake_tools](https://github.com/ExistentialRobotics/erl_cmake_tools)
+- [erl_common](https://github.com/ExistentialRobotics/erl_common)
+- [erl_common_ros](https://github.com/ExistentialRobotics/erl_common_ros)
+- [erl_covariance](https://github.com/ExistentialRobotics/erl_covariance)
+- [erl_gaussian_process](https://github.com/ExistentialRobotics/erl_gaussian_process)
+- [erl_geometry](https://github.com/ExistentialRobotics/erl_geometry)
+- [erl_geometry_msgs](https://github.com/ExistentialRobotics/erl_geometry_msgs)
+- [erl_geometry_rviz_plugin](https://github.com/ExistentialRobotics/erl_geometry_rviz_plugin)
+- [erl_geometry_ros](https://github.com/ExistentialRobotics/erl_geometry_ros)
+- [erl_gp_sdf](https://github.com/ExistentialRobotics/erl_gp_sdf)
+- [erl_gp_sdf_msgs](https://github.com/ExistentialRobotics/erl_gp_sdf_msgs)
+
+```bash
+# Ubuntu 20.04
+wget -qO - https://raw.githubusercontent.com/ExistentialRobotics/erl_common/refs/heads/main/scripts/setup_ubuntu_20.04.bash | bash
+wget -qO - https://raw.githubusercontent.com/ExistentialRobotics/erl_geometry/refs/heads/main/scripts/setup_ubuntu_20.04.bash | bash
+# Ubuntu 22.04, 24.04
+wget -qO - https://raw.githubusercontent.com/ExistentialRobotics/erl_common/refs/heads/main/scripts/setup_ubuntu_22.04_24.04.bash | bash
+wget -qO - https://raw.githubusercontent.com/ExistentialRobotics/erl_geometry/refs/heads/main/scripts/setup_ubuntu_22.04_24.04.bash | bash
+```
 
 Standard ROS dependencies:
 - `geometry_msgs`
@@ -52,13 +69,6 @@ Standard ROS dependencies:
 - `tf2_ros`
 - `tf2_eigen`
 - `tf2_geometry_msgs`
-
-### Create Workspace
-
-```bash
-mkdir -p <your_workspace>/src && \
-vcs import --input https://raw.githubusercontent.com/ExistentialRobotics/erl_gp_sdf_ros/main/erl_gp_sdf_ros.repos <your_workspace>/src
-```
 
 ### Docker Option (Recommended)
 
@@ -73,19 +83,15 @@ ROS_DISTRO=<ros_distro> ./src/erl_gp_sdf_ros/scripts/build_docker.bash
 ./src/erl_gp_sdf_ros/scripts/login_container.bash
 ```
 
-### Build from Source
+### Building the Package
 
-**ROS 1:**
 ```bash
 cd <your_workspace>
-catkin build --verbose erl_gp_sdf_ros
+# for ROS1
+catkin build erl_gp_sdf_ros
 source devel/setup.bash
-```
-
-**ROS 2:**
-```bash
-cd <your_workspace>
-colcon build --packages-up-to erl_gp_sdf_ros --cmake-args -DCMAKE_BUILD_TYPE=Release
+# for ROS2
+colcon build --packages-up-to erl_gp_sdf_ros
 source install/setup.bash
 ```
 

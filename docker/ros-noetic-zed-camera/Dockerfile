@@ -124,6 +124,7 @@ RUN curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | DEB
 RUN DEBIAN_FRONTEND=noninteractive apt update -y
 RUN DEBIAN_FRONTEND=noninteractive apt install -y \
     ros-noetic-desktop-full \
+    ros-noetic-geometry2 \
     python3-rosdep \
     python3-rosinstall \
     python3-rosinstall-generator \
