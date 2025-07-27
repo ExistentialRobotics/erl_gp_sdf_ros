@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 
-WORKSPACE_DIR=${WORKSPACE_DIR:"ros_ws_gp_sdf"}
+WORKSPACE_DIR=${WORKSPACE_DIR:-"ros_ws_gp_sdf"}
 mkdir -p ${WORKSPACE_DIR}/src
 cd ${WORKSPACE_DIR}/src
 for repo in erl_cmake_tools \

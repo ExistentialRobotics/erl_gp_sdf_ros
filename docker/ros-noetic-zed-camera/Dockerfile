@@ -14,7 +14,7 @@ ENV LC_ALL=${LOCALE}
 ####################################################################################################
 RUN cp /etc/apt/sources.list /etc/apt/sources.list.backup &&\
     if [ -n "$APT_MIRROR" ]; then \
-        sed -i "s|http://archive.ubuntu.com/ubuntu/|$APT_MIRROR|g" /etc/apt/sources.list; \
+    sed -i "s|http://archive.ubuntu.com/ubuntu/|$APT_MIRROR|g" /etc/apt/sources.list; \
     fi
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone && \
     DEBIAN_FRONTEND=noninteractive apt update && apt install -y locales && locale-gen en_US.UTF-8
@@ -80,13 +80,13 @@ RUN git clone https://github.com/jlblancoc/nanoflann && \
 RUN git clone --recursive https://github.com/abseil/abseil-cpp.git && cd abseil-cpp && \
     git checkout 20240722.1 && mkdir -p build && cd build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="${CXXFLAGS} -DNDEBUG" \
-       -DCMAKE_CXX_STANDARD=17 -DBUILD_SHARED_LIBS=ON -DABSL_PROPAGATE_CXX_STD=ON && \
+    -DCMAKE_CXX_STANDARD=17 -DBUILD_SHARED_LIBS=ON -DABSL_PROPAGATE_CXX_STD=ON && \
     make -j`nproc` && make install && cd /root && rm -rf abseil-cpp
 # install QHull
 RUN git clone --recursive https://github.com/qhull/qhull.git && cd qhull && \
     git checkout 2020.2 && mkdir -p my_build && cd my_build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-fPIC -ffat-lto-objects" \
-      -DCMAKE_C_FLAGS="-fPIC -ffat-lto-objects" -DCMAKE_SKIP_RPATH=ON && \
+    -DCMAKE_C_FLAGS="-fPIC -ffat-lto-objects" -DCMAKE_SKIP_RPATH=ON && \
     make -j`nproc` && make install && cd /root && rm -rf qhull
 # Open3D 0.19.0 requires at least CMake 3.24
 RUN wget https://github.com/Kitware/CMake/releases/download/v3.24.0/cmake-3.24.0-linux-x86_64.sh &&\
@@ -98,19 +98,19 @@ RUN git clone --recursive https://github.com/isl-org/Open3D.git && cd Open3D && 
     git checkout 1e7b174 && echo y | util/install_deps_ubuntu.sh && mkdir -p build && \
     cd build && \
     PATH="/usr/local/bin:${PATH}" cmake .. \
-        -DBUILD_SHARED_LIBS=ON \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DUSE_SYSTEM_FMT=ON \
-        -DUSE_SYSTEM_GOOGLETEST=ON \
-        -DUSE_SYSTEM_JSONCPP=ON \
-        -DUSE_SYSTEM_NANOFLANN=ON \
-        -DUSE_SYSTEM_PYBIND11=ON \
-        -DUSE_SYSTEM_QHULLCPP=ON \
-        -DGLIBCXX_USE_CXX11_ABI=ON \
-        -DBUILD_PYTHON_MODULE=OFF \
-        -DBUILD_EXAMPLES=OFF \
-        -DBUILD_UNIT_TESTS=OFF \
-        -DBUILD_BENCHMARKS=OFF && \
+    -DBUILD_SHARED_LIBS=ON \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DUSE_SYSTEM_FMT=ON \
+    -DUSE_SYSTEM_GOOGLETEST=ON \
+    -DUSE_SYSTEM_JSONCPP=ON \
+    -DUSE_SYSTEM_NANOFLANN=ON \
+    -DUSE_SYSTEM_PYBIND11=ON \
+    -DUSE_SYSTEM_QHULLCPP=ON \
+    -DGLIBCXX_USE_CXX11_ABI=ON \
+    -DBUILD_PYTHON_MODULE=OFF \
+    -DBUILD_EXAMPLES=OFF \
+    -DBUILD_UNIT_TESTS=OFF \
+    -DBUILD_BENCHMARKS=OFF && \
     make -j`nproc` && make install && \
     cd /root && rm -rf Open3D
 ####################################################################################################
@@ -140,31 +140,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt install -y \
 RUN rosdep init && rosdep fix-permissions && rosdep update
 
 ####################################################################################################
-# RealSense
-####################################################################################################
-# https://github.com/IntelRealSense/realsense-ros/tree/ros1-legacy
-# https://dev.intelrealsense.com/docs/ros1-wrapper
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    ros-noetic-realsense2-camera \
-    ros-noetic-realsense2-description
-# https://github.com/IntelRealSense/librealsense/blob/master/doc/distribution_linux.md
-RUN mkdir -p /etc/apt/keyrings && \
-    curl -sSf https://librealsense.intel.com/Debian/librealsense.pgp | \
-    tee /etc/apt/keyrings/librealsense.pgp > /dev/null
-RUN echo "deb [signed-by=/etc/apt/keyrings/librealsense.pgp] https://librealsense.intel.com/Debian/apt-repo `lsb_release -cs` main" | \
-    tee /etc/apt/sources.list.d/librealsense.list && \
-    apt-get update && DEBIAN_FRONTEND=noninteractive apt install -y \
-    librealsense2-udev-rules \
-    librealsense2 \
-    librealsense2-utils \
-    librealsense2-dev \
-    librealsense2-dbg \
-    librealsense2-gl \
-    librealsense2-gl-dev \
-    librealsense2-gl-dbg
-
-####################################################################################################
-# erl_gp_sdf dependencies
+# erl_gp_sdf_ros dependencies
 ####################################################################################################
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ros-noetic-grid-map-ros \
@@ -207,5 +183,5 @@ ENV DISABLE_ROS1_EOL_WARNINGS=1
 ####################################################################################################
 RUN apt-get clean  && rm -rf /var/lib/apt/lists/*
 RUN if [ -n "$APT_MIRROR" ]; then \
-        mv /etc/apt/sources.list.backup /etc/apt/sources.list; \
+    mv /etc/apt/sources.list.backup /etc/apt/sources.list; \
     fi

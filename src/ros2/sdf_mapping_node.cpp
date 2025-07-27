@@ -15,7 +15,6 @@
 #include <geometry_msgs/msg/vector3.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
-// #include <rviz_common/validate_floats.hpp>
 #include <rviz_default_plugins/displays/pointcloud/point_cloud_helpers.hpp>
 #include <sensor_msgs/image_encodings.hpp>
 #include <sensor_msgs/msg/image.hpp>
@@ -231,6 +230,18 @@ public:
         m_surface_mapping_ =
             AbstractSurfaceMapping::Create(m_setting_.surface_mapping_type, m_surface_mapping_cfg_);
         m_sdf_mapping_ = std::make_shared<GpSdfMapping>(m_sdf_mapping_cfg_, m_surface_mapping_);
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Created surface mapping of type %s",
+            m_setting_.surface_mapping_type.c_str());
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Surface mapping config:\n%s",
+            m_surface_mapping_cfg_->AsYamlString().c_str());
+        RCLCPP_INFO(
+            this->get_logger(),
+            "SDF mapping config:\n%s",
+            m_sdf_mapping_cfg_->AsYamlString().c_str());
 
         if (m_setting_.use_odom) {
             if (m_setting_.odom_msg_type == "nav_msgs/msg/Odometry") {
@@ -257,7 +268,7 @@ public:
             }
             m_odom_queue_.reserve(m_setting_.odom_queue_size);
         }
-        // TODO: support setting queue size
+
         switch (m_scan_type_) {
             case ScanType::Laser:
                 RCLCPP_INFO(
@@ -1167,14 +1178,14 @@ private:
     }
 
     // --- service handler: runs Test() on the current map ---
-    bool
+    void
     CallbackSdfQuery(
         const std::shared_ptr<erl_gp_sdf_msgs::srv::SdfQuery::Request> req,
         std::shared_ptr<erl_gp_sdf_msgs::srv::SdfQuery::Response> res) {
 
         if (!m_sdf_mapping_) {
             RCLCPP_WARN(this->get_logger(), "SDF mapping is not initialized");
-            return false;
+            return;
         }
 
         using QuerySetting = typename GpSdfMapping::Setting::TestQuery;
@@ -1198,11 +1209,13 @@ private:
         auto t2 = this->get_clock()->now();
         m_msg_query_time_.header.stamp = t2;
         m_msg_query_time_.temperature = (t2 - t1).seconds();
+        RCLCPP_INFO(this->get_logger(), "SDF query took %f seconds", m_msg_query_time_.temperature);
         m_pub_query_time_->publish(m_msg_query_time_);
         res->success = ok;
-        if (!ok) { return false; }
-
-        // TODO: CHECK ALL std::memcpy() CALLS FOR CORRECTNESS
+        if (!ok) {
+            RCLCPP_WARN(this->get_logger(), "Failed to process SDF query");
+            return;
+        }
 
         // convert to double for the response
         Eigen::VectorXd distances_d;
@@ -1279,22 +1292,21 @@ private:
                 reinterpret_cast<const char*>(covariances_ptr),
                 n * Dim * (Dim + 1) / 2 * sizeof(double));
         }
-        return true;
     }
 
-    bool
+    void
     CallbackSaveMap(
         erl_gp_sdf_msgs::srv::SaveMap::Request::ConstSharedPtr req,
         erl_gp_sdf_msgs::srv::SaveMap::Response::SharedPtr res) {
         if (!m_sdf_mapping_) {
             RCLCPP_WARN(this->get_logger(), "SDF mapping is not initialized");
             res->success = false;
-            return false;
+            return;
         }
         if (req->name.empty()) {
             RCLCPP_WARN(this->get_logger(), "Map file name is empty");
             res->success = false;
-            return false;
+            return;
         }
         std::filesystem::path map_file = req->name;
         map_file = std::filesystem::absolute(map_file);
@@ -1304,7 +1316,6 @@ private:
             using Serializer = Serialization<GpSdfMapping>;
             res->success = Serializer::Write(map_file, m_sdf_mapping_.get());
         }
-        return true;
     }
 
     void
@@ -1432,6 +1443,7 @@ main(int argc, char** argv) {
     bool double_precision = false;
     temp_node->declare_parameter<bool>("double_precision", false);
     double_precision = temp_node->get_parameter("double_precision").as_bool();
+    temp_node.reset();  // release the temporary node
 
     std::shared_ptr<rclcpp::Node> node;
     if (double_precision) {

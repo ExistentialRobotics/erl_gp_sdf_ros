@@ -1,0 +1,25 @@
+surface_mapping_setting_type: erl::gp_sdf::GpOccSurfaceMapping<double, 3>::Setting
+surface_mapping_setting_file: config/template/gp_occ_mapping_3d_lidar_double.yaml
+surface_mapping_type: erl::gp_sdf::GpOccSurfaceMapping<double, 3>
+sdf_mapping_setting_file: config/template/sdf_mapping_3d_double.yaml
+use_odom: false
+odom_topic: /jackal_velocity_controller/odom
+odom_msg_type: geometry_msgs/msg/TransformStamped  # or nav_msgs/msg/Odometry
+odom_queue_size: 200
+world_frame: map
+sensor_frame: camera
+scan_topic: /camera/depth
+scan_type: sensor_msgs/msg/Image
+scan_frame_type: erl::geometry::DepthFrame3D<double>
+scan_frame_setting_file: config/sensors/depth_frame.yaml
+scan_stride: 1
+convert_scan_to_points: false
+scan_in_local_frame: true
+depth_scale: 0.001
+publish_tree: false
+publish_tree_topic: surface_mapping_tree
+publish_tree_binary: true
+publish_tree_frequency: 5.0
+publish_surface_points: false
+publish_surface_points_topic: surface_points
+publish_surface_points_frequency: 5.0

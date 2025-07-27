@@ -1,0 +1,2 @@
+scan_type: sensor_msgs/msg/PointCloud2
+scan_frame_type: erl::geometry::LidarFrame3D<double>

@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=ubuntu:22.04
+ARG BASE_IMAGE=erl/geometry:22.04
 FROM ${BASE_IMAGE}
 
 ARG TZ=America/Los_Angeles
@@ -23,16 +23,18 @@ RUN DEBIAN_FRONTEND=noninteractive apt update -y && apt install -y \
     curl
 
 RUN add-apt-repository universe
-RUN curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo $VERSION_CODENAME)_all.deb"
-RUN dpkg -i /tmp/ros2-apt-source.deb
+RUN curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo $VERSION_CODENAME)_all.deb" && dpkg -i /tmp/ros2-apt-source.deb && rm /tmp/ros2-apt-source.deb
 
 RUN DEBIAN_FRONTEND=noninteractive apt update -y && apt upgrade -y
 RUN DEBIAN_FRONTEND=noninteractive apt install -y \
     ros-humble-desktop-full \
     ros-dev-tools \
     python3-colcon-common-extensions \
+    # erl_gp_sdf_ros dependencies
     ros-humble-grid-map-msgs \
-    ros-humble-grid-map-ros
+    ros-humble-grid-map-ros \
+    ros-humble-grid-map-rviz-plugin
+RUN rosdep init && rosdep update
 
 # clean
 RUN apt-get clean  && rm -rf /var/lib/apt/lists/*

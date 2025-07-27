@@ -46,7 +46,7 @@ struct SdfVisualizatioNodeSetting {
     // the name of the world frame, used when attached_to_frame is true.
     std::string world_frame = "map";
     // the name of the service to query the SDF.
-    std::string service_name = "/sdf_mapping_node/sdf_query";
+    std::string service_name = "sdf_query";
     // the name of the topic to publish the grid map.
     std::string map_topic_name = "sdf_grid_map";
     // the name of the topic to publish the point cloud.
@@ -65,12 +65,13 @@ class SdfVisualizatioNode : public rclcpp::Node {
     std_msgs::msg::Header m_header_;
     grid_map::GridMap m_grid_map_;
     sensor_msgs::msg::PointCloud2 m_cloud_;
+    std::atomic_bool m_last_request_responded_ = true;
 
 public:
     SdfVisualizatioNode()
-        : Node("sdf_visualization_node") {
-        m_tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
-        m_tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer_);
+        : Node("sdf_visualization_node"),
+          m_tf_buffer_(std::make_shared<tf2_ros::Buffer>(this->get_clock())),
+          m_tf_listener_(std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer_)) {
 
         if (!LoadParameters()) {
             RCLCPP_FATAL(this->get_logger(), "Failed to load parameters");
@@ -115,38 +116,67 @@ public:
     }
 
 private:
+    void
+    DeclareParameters() {
+        this->declare_parameter("resolution", m_setting_.resolution);
+        this->declare_parameter("x_cells", m_setting_.x_cells);
+        this->declare_parameter("y_cells", m_setting_.y_cells);
+        this->declare_parameter("x", m_setting_.x);
+        this->declare_parameter("y", m_setting_.y);
+        this->declare_parameter("z", m_setting_.z);
+        this->declare_parameter("publish_gradient", m_setting_.publish_gradient);
+        this->declare_parameter("publish_sdf_variance", m_setting_.publish_sdf_variance);
+        this->declare_parameter("publish_gradient_variance", m_setting_.publish_gradient_variance);
+        this->declare_parameter("publish_covariance", m_setting_.publish_covariance);
+        this->declare_parameter("publish_grid_map", m_setting_.publish_grid_map);
+        this->declare_parameter("publish_point_cloud", m_setting_.publish_point_cloud);
+        this->declare_parameter("publish_rate", m_setting_.publish_rate);
+        this->declare_parameter("attached_to_frame", m_setting_.attached_to_frame);
+        this->declare_parameter("attached_frame", m_setting_.attached_frame);
+        this->declare_parameter("service_name", m_setting_.service_name);
+        this->declare_parameter("map_topic_name", m_setting_.map_topic_name);
+    }
+
     template<typename T>
     bool
     LoadParam(const std::string& param_name, T& param) {
-        this->declare_parameter(param_name, param);
-        if (!this->get_parameter(param_name, param)) {
-            RCLCPP_WARN(this->get_logger(), "Failed to load param %s", param_name.c_str());
+        try {
+            param = this->get_parameter(param_name).template get_value<T>();
+        } catch (const rclcpp::exceptions::ParameterNotDeclaredException& e) {
+            RCLCPP_FATAL(this->get_logger(), "Failed to load %s", param_name.c_str());
             return false;
         }
         return true;
     }
 
+#define LOAD_PARAM(x) \
+    if (!LoadParam(#x, m_setting_.x)) { return false; }
+
     bool
     LoadParameters() {
-        if (!LoadParam("resolution", m_setting_.resolution)) { return false; }
-        if (!LoadParam("x_cells", m_setting_.x_cells)) { return false; }
-        if (!LoadParam("y_cells", m_setting_.y_cells)) { return false; }
-        if (!LoadParam("x", m_setting_.x)) { return false; }
-        if (!LoadParam("y", m_setting_.y)) { return false; }
-        if (!LoadParam("z", m_setting_.z)) { return false; }
-        if (!LoadParam("publish_gradient", m_setting_.publish_gradient)) { return false; }
-        if (!LoadParam("publish_sdf_variance", m_setting_.publish_sdf_variance)) { return false; }
-        if (!LoadParam("publish_gradient_variance", m_setting_.publish_gradient_variance)) {
-            return false;
-        }
-        if (!LoadParam("publish_covariance", m_setting_.publish_covariance)) { return false; }
-        if (!LoadParam("publish_grid_map", m_setting_.publish_grid_map)) { return false; }
-        if (!LoadParam("publish_point_cloud", m_setting_.publish_point_cloud)) { return false; }
-        if (!LoadParam("publish_rate", m_setting_.publish_rate)) { return false; }
-        if (!LoadParam("attached_to_frame", m_setting_.attached_to_frame)) { return false; }
-        if (!LoadParam("attached_frame", m_setting_.attached_frame)) { return false; }
-        if (!LoadParam("service_name", m_setting_.service_name)) { return false; }
-        if (!LoadParam("map_topic_name", m_setting_.map_topic_name)) { return false; }
+        // First declare all parameters
+        DeclareParameters();
+
+        // Then load them
+        LOAD_PARAM(resolution);
+        LOAD_PARAM(x_cells);
+        LOAD_PARAM(y_cells);
+        LOAD_PARAM(x);
+        LOAD_PARAM(y);
+        LOAD_PARAM(z);
+        LOAD_PARAM(publish_gradient);
+        LOAD_PARAM(publish_sdf_variance);
+        LOAD_PARAM(publish_gradient_variance);
+        LOAD_PARAM(publish_covariance);
+        LOAD_PARAM(publish_grid_map);
+        LOAD_PARAM(publish_point_cloud);
+        LOAD_PARAM(publish_rate);
+        LOAD_PARAM(attached_to_frame);
+        LOAD_PARAM(attached_frame);
+        LOAD_PARAM(service_name);
+        LOAD_PARAM(map_topic_name);
+
+        // check the parameters
         if (m_setting_.resolution <= 0) {
             RCLCPP_WARN(this->get_logger(), "Resolution must be positive");
             return false;
@@ -202,6 +232,8 @@ private:
         return true;
     }
 
+#undef LOAD_PARAM
+
     void
     InitQueryPoints() {
         m_query_points_.clear();
@@ -226,9 +258,14 @@ private:
 
     void
     CallbackTimer() {
+        if (!m_last_request_responded_.load()) {
+            RCLCPP_WARN(this->get_logger(), "Last request is still pending, skipping this cycle");
+            return;
+        }
+
         auto request = std::make_shared<erl_gp_sdf_msgs::srv::SdfQuery::Request>();
-        geometry_msgs::msg::TransformStamped transform_stamped;
         if (m_setting_.attached_to_frame) {
+            geometry_msgs::msg::TransformStamped transform_stamped;
             try {
                 transform_stamped = m_tf_buffer_->lookupTransform(
                     m_setting_.world_frame,
@@ -250,8 +287,10 @@ private:
                 p.z = p_world.z();
                 request->query_points.emplace_back(std::move(p));
             }
+            m_header_.stamp = transform_stamped.header.stamp;
         } else {
             request->query_points = m_query_points_;
+            m_header_.stamp = this->now();
         }
 
         if (!m_sdf_client_->service_is_ready()) {
@@ -262,16 +301,20 @@ private:
             return;
         }
 
-        auto result_future = m_sdf_client_->async_send_request(request);
+        auto callback =
+            [this](rclcpp::Client<erl_gp_sdf_msgs::srv::SdfQuery>::SharedFutureWithRequest future) {
+                this->ResponseHandler(std::move(future));
+            };
+        m_last_request_responded_.store(false);
+        auto result_future = m_sdf_client_->async_send_request(request, callback);
+    }
 
-        // TODO: add a parameter for timeout
-        // Wait for the result with timeout
-        if (result_future.wait_for(std::chrono::seconds(1)) != std::future_status::ready) {
-            RCLCPP_WARN(this->get_logger(), "Service call timed out");
-            return;
-        }
-
-        auto response = result_future.get();
+    void
+    ResponseHandler(
+        rclcpp::Client<erl_gp_sdf_msgs::srv::SdfQuery>::SharedFutureWithRequest future) {
+        m_last_request_responded_.store(true);
+        auto request_response_pair = future.get();
+        auto& response = request_response_pair.second;
         if (!response->success) {
             RCLCPP_WARN(this->get_logger(), "SDF query failed");
             return;
@@ -290,12 +333,6 @@ private:
 
         // 1. copy the result to the grid map / the point cloud
         // 2. publish the grid map / point cloud
-
-        if (m_setting_.attached_to_frame) {
-            m_header_.stamp = transform_stamped.header.stamp;
-        } else {
-            m_header_.stamp = this->now();
-        }
 
         if (m_setting_.publish_grid_map) {
             m_grid_map_.setTimestamp(rclcpp::Time(m_header_.stamp).nanoseconds());

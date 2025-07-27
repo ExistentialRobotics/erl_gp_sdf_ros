@@ -1,0 +1,133 @@
+<launch>
+
+    <!-- <arg name="zed_bag_file" default="$(env HOME)/Data/Zed/zed_2025-06-08-00-21-17.bag" /> -->
+    <arg name="zed_bag_file" default="$(env HOME)/Data/Zed/zed_2025-06-09-15-10-37.bag" />
+    <!-- Options: float, double -->
+    <arg name="precision" default="float" />
+    <!-- Options: gp_occ, bayesian_hilbert -->
+    <arg name="surf_mapping_method" default="bayesian_hilbert" />
+    <!-- whether to launch the sdf visualization node -->
+    <arg name="visualize_sdf" default="true" />
+    <!-- whether to launch rviz for visualization -->
+    <arg name="open_rviz" default="true" />
+    <!-- whether to launch rqt_plot for performance analysis -->
+    <arg name="open_rqt_plot" default="true" />
+    <!-- playback rate for rosbag -->
+    <arg name="rosbag_play_rate" default="0.8" />
+    <!-- whether to play the rosbag file -->
+    <arg name="play_rosbag" default="true" />
+
+    <group if="$(eval surf_mapping_method == 'gp_occ')">
+        <node pkg="erl_gp_sdf_ros" type="sdf_mapping_node" name="sdf_mapping_node" output="screen">
+            <rosparam command="load" file="$(find erl_gp_sdf_ros)/config/ros1/gp_occ_$(arg precision)_3d.yaml" />
+            <param name="map_dim" value="3" />
+            <param name="double_precision" value="$(eval precision == 'double')" />
+            <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/zed/gp_occ_surf_mapping_$(arg precision).yaml" />
+            <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/zed/gp_occ_sdf_mapping_$(arg precision).yaml" />
+            <param name="use_odom" value="false" />
+            <param name="odom_topic" value="/zed/zed_node/odom" />
+            <param name="odom_msg_type" value="nav_msgs/Odometry" />
+            <param name="sensor_frame" value="zed_left_camera_optical_frame" />
+            <param name="scan_topic" value="/zed/zed_node/depth/depth_registered" />
+            <param name="scan_type" value="sensor_msgs/Image" />
+            <param name="convert_scan_to_points" value="false" />
+            <param name="scan_frame_setting_file" value="$(find erl_gp_sdf_ros)/config/zed/depth_frame.yaml" />
+            <param name="scan_in_local_frame" value="true" />
+            <param name="depth_scale" value="1.0" />
+            <param name="publish_tree" value="true" />
+        </node>
+    </group>
+
+    <group if="$(eval surf_mapping_method == 'bayesian_hilbert')">
+        <node pkg="erl_gp_sdf_ros" type="sdf_mapping_node" name="sdf_mapping_node" output="screen">
+            <rosparam command="load" file="$(find erl_gp_sdf_ros)/config/ros1/bayesian_hilbert_$(arg precision)_3d.yaml" />
+            <param name="map_dim" value="3" />
+            <param name="double_precision" value="$(eval precision == 'double')" />
+            <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/zed/bayesian_hilbert_surf_mapping_$(arg precision).yaml" />
+            <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/zed/bayesian_hilbert_sdf_mapping_$(arg precision).yaml" />
+            <param name="use_odom" value="false" />
+            <param name="odom_topic" value="/zed/zed_node/odom" />
+            <param name="odom_msg_type" value="nav_msgs/Odometry" />
+            <param name="sensor_frame" value="zed_left_camera_frame" />
+            <param name="scan_topic" value="/zed/zed_node/point_cloud/cloud_registered" />
+            <param name="scan_type" value="sensor_msgs/PointCloud2" />
+            <param name="convert_scan_to_points" value="true" />
+            <param name="scan_frame_setting_file" value="$(find erl_gp_sdf_ros)/config/zed/depth_frame.yaml" />
+            <param name="scan_stride" value="2" />
+            <param name="scan_in_local_frame" value="true" />
+            <param name="depth_scale" value="1.0" />
+            <param name="publish_tree" value="true" />
+        </node>
+    </group>
+
+    <group if="$(arg visualize_sdf)">
+        <node pkg="erl_gp_sdf_ros" type="sdf_visualization_node" name="sdf_visualization_node_follow" output="screen">
+            <!-- <param name="resolution" value="0.05" /> -->
+            <param name="resolution" value="0.02" />
+            <param name="x_cells" value="101" />
+            <param name="y_cells" value="101" />
+            <!-- <param name="x" value="0" /> -->
+            <!-- <param name="y" value="-0.5" /> -->
+            <!-- <param name="z" value="0.8" /> -->
+            <param name="x" value="0.0" />
+            <param name="y" value="0.0" />
+            <param name="z" value="0.0" />
+            <param name="publish_gradient" value="true" />
+            <param name="publish_sdf_variance" value="true" />
+            <param name="publish_gradient_variance" value="true" />
+            <param name="publish_covariance" value="false" />
+            <param name="publish_grid_map" value="true" />
+            <param name="publish_point_cloud" value="true" />
+            <param name="publish_rate" value="10.0" />
+            <param name="attached_to_frame" value="true" />
+            <param name="world_frame" value="map" />
+            <param name="attached_frame" value="zed_left_camera_frame" />
+            <param name="service_name" value="/sdf_mapping_node/sdf_query" />
+            <param name="map_topic_name" value="sdf_grid_map" />
+            <param name="point_cloud_topic_name" value="sdf_point_cloud" />
+        </node>
+
+        <node pkg="erl_gp_sdf_ros" type="sdf_visualization_node" name="sdf_visualization_node_global" output="screen">
+            <!-- <param name="resolution" value="0.05" /> -->
+            <param name="resolution" value="0.1" />
+            <param name="x_cells" value="101" />
+            <param name="y_cells" value="101" />
+            <!-- <param name="x" value="0" /> -->
+            <!-- <param name="y" value="-0.5" /> -->
+            <!-- <param name="z" value="0.8" /> -->
+            <param name="x" value="0.0" />
+            <param name="y" value="0.0" />
+            <param name="z" value="-0.8" />
+            <param name="publish_gradient" value="true" />
+            <param name="publish_sdf_variance" value="true" />
+            <param name="publish_gradient_variance" value="true" />
+            <param name="publish_covariance" value="false" />
+            <param name="publish_grid_map" value="true" />
+            <param name="publish_point_cloud" value="true" />
+            <param name="publish_rate" value="10.0" />
+            <param name="attached_to_frame" value="false" />
+            <param name="world_frame" value="map" />
+            <param name="attached_frame" value="zed_left_camera_frame" />
+            <param name="service_name" value="/sdf_mapping_node/sdf_query" />
+            <param name="map_topic_name" value="sdf_grid_map" />
+            <param name="point_cloud_topic_name" value="sdf_point_cloud" />
+        </node>
+    </group>
+
+    <group if="$(arg open_rqt_plot)">
+        <node pkg="rqt_plot" type="rqt_plot" name="rqt_plot" args="/sdf_mapping_node/update_time/temperature /sdf_mapping_node/query_time/temperature" />
+    </group>
+
+    <group if="$(arg play_rosbag)">
+        <node pkg="rosbag" type="play" name="rosbag_play" args="$(arg zed_bag_file) --rate=$(arg rosbag_play_rate) --clock" output="screen"/>
+        <group if="$(arg open_rviz)">
+            <node pkg="rviz" type="rviz" name="rviz" args="-d $(find erl_gp_sdf_ros)/rviz/zed.rviz" />
+        </group>
+    </group>
+    <group unless="$(arg play_rosbag)">
+        <include file="$(find zed_wrapper)/launch/zed.launch" />
+        <group if="$(arg open_rviz)">
+            <node pkg="rviz" type="rviz" name="rviz" args="-d $(find erl_gp_sdf_ros)/rviz/zed_live.rviz" />
+        </group>
+    </group>
+</launch>

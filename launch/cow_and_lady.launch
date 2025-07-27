@@ -6,7 +6,7 @@
     <!-- Options: float, double -->
     <arg name="precision" default="float" />
     <!-- Options: gp_occ, bayesian_hilbert -->
-    <arg name="surf_mapping_method" default="gp_occ" />
+    <arg name="surf_mapping_method" default="bayesian_hilbert" />
     <!-- whether to launch the sdf visualization node -->
     <arg name="visualize_sdf" default="true" />
     <!-- whether to launch rviz for visualization -->
@@ -14,7 +14,7 @@
     <!-- whether to launch rqt_plot for performance analysis -->
     <arg name="open_rqt_plot" default="true" />
     <!-- playback rate for rosbag -->
-    <arg name="rosbag_play_rate" default="6.0" />
+    <arg name="rosbag_play_rate" default="2.0" />
 
     <!-- use - -clock option to make rosbag_play publish /clock. But this bag does not have /clock or tf data. -->
     <node pkg="rosbag" type="play" name="rosbag_play" args="$(arg cow_and_lady_bag) --rate=$(arg rosbag_play_rate) --start=5 --duration=128" output="screen"/>

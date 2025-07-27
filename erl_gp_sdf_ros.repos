@@ -1,0 +1,49 @@
+repositories:
+    erl_cmake_tools:
+        type: git
+        url: https://github.com/ExistentialRobotics/erl_cmake_tools.git
+        version: v0.1.0
+    erl_common:
+        type: git
+        url: https://github.com/ExistentialRobotics/erl_common.git
+        version: v0.1.0
+    erl_common_ros:
+        type: git
+        url: https://github.com/ExistentialRobotics/erl_common_ros.git
+        version: v0.1.0
+    erl_covariance:
+        type: git
+        url: https://github.com/ExistentialRobotics/erl_covariance.git
+        version: v0.1.0
+    erl_gaussian_process:
+        type: git
+        url: https://github.com/ExistentialRobotics/erl_gaussian_process.git
+        version: v0.1.0
+    erl_geometry:
+        type: git
+        url: https://github.com/ExistentialRobotics/erl_geometry.git
+        version: v0.1.0
+    erl_geometry_msgs:
+        type: git
+        url: https://github.com/ExistentialRobotics/erl_geometry_msgs.git
+        version: v0.1.0
+    erl_geometry_ros:
+        type: git
+        url: https://github.com/ExistentialRobotics/erl_geometry_ros.git
+        version: v0.1.0
+    erl_geometry_rviz_plugin:
+        type: git
+        url: https://github.com/ExistentialRobotics/erl_geometry_rviz_plugin.git
+        version: v0.1.0
+    erl_gp_sdf:
+        type: git
+        url: https://github.com/ExistentialRobotics/erl_gp_sdf.git
+        version: v0.1.0
+    erl_gp_sdf_msgs:
+        type: git
+        url: https://github.com/ExistentialRobotics/erl_gp_sdf_msgs.git
+        version: v0.1.0
+    erl_gp_sdf_ros:
+        type: git
+        url: https://github.com/ExistentialRobotics/erl_gp_sdf_ros.git
+        version: main

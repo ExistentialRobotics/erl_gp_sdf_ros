@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE}
 ARG APT_MIRROR=""
 RUN cp /etc/apt/sources.list /etc/apt/sources.list.backup &&\
     if [ -n "$APT_MIRROR" ]; then \
-        sed -i "s|http://archive.ubuntu.com/ubuntu/|$APT_MIRROR|g" /etc/apt/sources.list; \
+    sed -i "s|http://archive.ubuntu.com/ubuntu/|$APT_MIRROR|g" /etc/apt/sources.list; \
     fi
 
 ####################################################################################################
@@ -18,6 +18,7 @@ RUN curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | DEB
 RUN DEBIAN_FRONTEND=noninteractive apt update -y
 RUN DEBIAN_FRONTEND=noninteractive apt install -y \
     ros-noetic-desktop-full \
+    ros-noetic-tf2-tools \
     python3-rosdep \
     python3-rosinstall \
     python3-rosinstall-generator \
@@ -58,7 +59,7 @@ RUN echo "deb [signed-by=/etc/apt/keyrings/librealsense.pgp] https://librealsens
     librealsense2-gl-dbg
 
 ####################################################################################################
-# erl_gp_sdf dependencies
+# erl_gp_sdf_ros dependencies
 ####################################################################################################
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ros-noetic-grid-map-ros \
@@ -77,5 +78,5 @@ RUN wget https://github.com/git-ecosystem/git-credential-manager/releases/downlo
 ####################################################################################################
 RUN apt-get clean  && rm -rf /var/lib/apt/lists/*
 RUN if [ -n "$APT_MIRROR" ]; then \
-        mv /etc/apt/sources.list.backup /etc/apt/sources.list; \
+    mv /etc/apt/sources.list.backup /etc/apt/sources.list; \
     fi
