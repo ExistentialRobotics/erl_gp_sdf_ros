@@ -4,6 +4,10 @@
 [![ROS1](https://img.shields.io/badge/ROS1-noetic-blue)](http://wiki.ros.org/)
 [![ROS2](https://img.shields.io/badge/ROS2-humble-blue)](https://docs.ros.org/)
 
+|                                   |                                          |
+| --------------------------------- | ---------------------------------------- |
+| ![](assets/demo_cow_and_lady.png) | ![](assets/demo_jackal_3d_lidar_bag.png) |
+
 **A ROS package for Gaussian Process regression on Signed Distance Fields.**
 
 `erl_gp_sdf_ros` is a ROS wrapper package for the [erl_gp_sdf](https://github.com/ExistentialRobotics/erl_gp_sdf) library, providing nodes for real-time SDF mapping and visualization using Gaussian Process regression. The package supports both ROS1 (Noetic) and ROS2 (Humble) distributions.
@@ -23,7 +27,7 @@
 
 - ROS1 Noetic or ROS2 Humble
 - C++17 compatible compiler
-- CMake 3.16 or higher
+- CMake 3.24 or higher
 
 ### Dependencies
 
