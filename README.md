@@ -33,7 +33,7 @@
 
 ```bash
 mkdir -p <your_workspace>/src && \
-vcs import --input https://raw.githubusercontent.com/ExistentialRobotics/erl_gp_sdf_ros/refs/head/main/erl_gp_sdf_ros.repos <your_workspace>/src
+vcs import --input https://raw.githubusercontent.com/ExistentialRobotics/erl_gp_sdf_ros/refs/heads/main/erl_gp_sdf_ros.repos <your_workspace>/src
 ```
 
 ### Dependencies
