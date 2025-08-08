@@ -2,15 +2,17 @@
 
 set -e
 
-echo "ROS_DISTRO: 1) noetic, 2) humble"
-read -p "Enter the number corresponding to your ROS distribution: " distro_choice
-if [ "$distro_choice" -eq 1 ]; then
-    export ROS_DISTRO="noetic"
-elif [ "$distro_choice" -eq 2 ]; then
-    export ROS_DISTRO="humble"
-else
-    echo "Invalid choice. Please run the script again and select either 1 or 2."
-    exit 1
+if [ -z "${ROS_DISTRO}" ]; then
+    echo "ROS_DISTRO: 1) noetic, 2) humble"
+    read -p "Enter the number corresponding to your ROS distribution: " distro_choice
+    if [ "$distro_choice" -eq 1 ]; then
+        export ROS_DISTRO="noetic"
+    elif [ "$distro_choice" -eq 2 ]; then
+        export ROS_DISTRO="humble"
+    else
+        echo "Invalid choice. Please run the script again and select either 1 or 2."
+        exit 1
+    fi
 fi
 
 SCRIPT_DIR=$(cd $(dirname $0); pwd)
