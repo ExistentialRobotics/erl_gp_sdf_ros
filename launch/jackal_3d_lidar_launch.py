@@ -1,20 +1,25 @@
 #!/usr/bin/python3
 
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
-from launch_ros.parameter_descriptions import ParameterFile
 from launch_ros.actions import Node
-from launch.actions import ExecuteProcess
-from ament_index_python.packages import get_package_share_directory
-import os
+from launch_ros.parameter_descriptions import ParameterFile
 
 
 def generate_launch_description():
     """Generate launch description for jackal 3D LiDAR SDF mapping."""
 
     # Declare launch arguments
+    namespace_arg = DeclareLaunchArgument(
+        "namespace",
+        default_value="",
+        description="Namespace for the robot",
+    )
     precision_arg = DeclareLaunchArgument(
         "precision",
         default_value="float",
@@ -90,16 +95,24 @@ def generate_launch_description():
 
     def create_sdf_mapping_node(context):
         """Create SDF mapping node with dynamic parameter loading."""
+        namespace = context.launch_configurations["namespace"]
         precision = context.launch_configurations["precision"]
         surf_mapping_method = context.launch_configurations["surf_mapping_method"]
         robot_name = context.launch_configurations["robot_name"]
+
+        if len(namespace) == 0:
+            namespace = None
 
         # Get package share directory
         pkg_share = get_package_share_directory("erl_gp_sdf_ros")
 
         # Build config file paths
-        config_file_1 = os.path.join(pkg_share, "config", "ros2", f"{surf_mapping_method}_{precision}_3d.yaml")
-        config_file_2 = os.path.join(pkg_share, "config", "ros2", f"use_lidar_frame_3d_{precision}.yaml")
+        if namespace is None:
+            config_file_1 = os.path.join(pkg_share, "config", "ros2", f"{surf_mapping_method}_{precision}_3d.yaml")
+            config_file_2 = os.path.join(pkg_share, "config", "ros2", f"use_lidar_frame_3d_{precision}.yaml")
+        else:
+            config_file_1 = os.path.join(pkg_share, "config", "ros2", f"{namespace}_{surf_mapping_method}_{precision}_3d.yaml")
+            config_file_2 = os.path.join(pkg_share, "config", "ros2", f"{namespace}_use_lidar_frame_3d_{precision}.yaml")
         surf_mapping_config = os.path.join(
             pkg_share, "config", "jackal_3d", f"{surf_mapping_method}_surf_mapping_lidar_{precision}.yaml"
         )
@@ -108,11 +121,21 @@ def generate_launch_description():
         )
         scan_frame_config = os.path.join(pkg_share, "config", "jackal_3d", "lidar_frame_3d_360.yaml")
 
+
+
+        remappings = None
+        if namespace is not None:
+            remappings = [
+                ("/tf", "tf"),
+                ("/tf_static", "tf_static"),
+            ]
+
         return [
             Node(
                 package="erl_gp_sdf_ros",
                 executable="sdf_mapping_node",
                 name="sdf_mapping_node",
+                namespace=namespace,
                 output="screen",
                 parameters=[
                     ParameterFile(config_file_1, allow_substs=True),
@@ -137,18 +160,24 @@ def generate_launch_description():
                         "publish_tree": True,
                     },
                 ],
+                remappings=remappings,
             )
         ]
 
     def create_sdf_visualization_node(context):
         """Create SDF visualization node."""
+        namespace = context.launch_configurations["namespace"]
         robot_name = context.launch_configurations["robot_name"]
+
+        if len(namespace) == 0:
+            namespace = None
 
         return [
             Node(
                 package="erl_gp_sdf_ros",
                 executable="sdf_visualization_node",
                 name="sdf_visualization_node",
+                namespace=namespace,
                 output="screen",
                 condition=IfCondition(LaunchConfiguration("visualize_sdf")),
                 parameters=[
@@ -179,9 +208,13 @@ def generate_launch_description():
 
     def create_rviz_node(context):
         """Create RViz node."""
+        namespace = context.launch_configurations["namespace"]
         robot_name = context.launch_configurations["robot_name"]
         pkg_share = get_package_share_directory("erl_gp_sdf_ros")
         rviz_config = os.path.join(pkg_share, "rviz2", f"{robot_name}_3d_lidar.rviz")
+
+        if len(namespace) == 0:
+            namespace = None
 
         return [
             Node(
@@ -190,16 +223,23 @@ def generate_launch_description():
                 name="rviz2",
                 condition=IfCondition(LaunchConfiguration("open_rviz")),
                 arguments=["-d", rviz_config],
+                namespace=namespace,
             )
         ]
 
-    rqt_plot_node = Node(
-        package="rqt_plot",
-        executable="rqt_plot",
-        name="rqt_plot",
-        condition=IfCondition(LaunchConfiguration("open_rqt_plot")),
-        arguments=["/update_time/temperature", "/query_time/temperature"],
-    )
+    def create_rqt_plot_node(context):
+        namespace = context.launch_configurations["namespace"]
+        return [
+            Node(
+                package="rqt_plot",
+                executable="rqt_plot",
+                name="rqt_plot",
+                condition=IfCondition(LaunchConfiguration("open_rqt_plot")),
+                arguments=[f"{namespace}/update_time/temperature", f"{namespace}/query_time/temperature"],
+            )
+        ]
+
+    rqt_plot_node = OpaqueFunction(function=create_rqt_plot_node)
 
     # Create nodes using OpaqueFunction for dynamic parameter evaluation
     sdf_mapping_node = OpaqueFunction(function=create_sdf_mapping_node)
@@ -224,6 +264,7 @@ def generate_launch_description():
     return LaunchDescription(
         [
             # Launch arguments
+            namespace_arg,
             precision_arg,
             surf_mapping_method_arg,
             visualize_sdf_arg,
