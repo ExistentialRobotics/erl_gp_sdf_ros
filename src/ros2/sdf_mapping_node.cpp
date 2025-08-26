@@ -132,6 +132,7 @@ class SdfMappingNode : public rclcpp::Node {
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr m_sub_point_cloud_;
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr m_sub_depth_image_;
     rclcpp::Service<erl_gp_sdf_msgs::srv::SdfQuery>::SharedPtr m_srv_query_sdf_;
+    rclcpp::Service<erl_gp_sdf_msgs::srv::SaveMap>::SharedPtr m_srv_load_map_;
     rclcpp::Service<erl_gp_sdf_msgs::srv::SaveMap>::SharedPtr m_srv_save_map_;
     rclcpp::Publisher<erl_geometry_msgs::msg::OccupancyTreeMsg>::SharedPtr m_pub_tree_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr m_pub_surface_points_;
@@ -394,6 +395,13 @@ public:
             "sdf_query",
             std::bind(
                 &SdfMappingNode::CallbackSdfQuery,
+                this,
+                std::placeholders::_1,
+                std::placeholders::_2));
+        m_srv_load_map_ = this->create_service<erl_gp_sdf_msgs::srv::SaveMap>(
+            "load_map",
+            std::bind(
+                &SdfMappingNode::CallbackLoadMap,
                 this,
                 std::placeholders::_1,
                 std::placeholders::_2));
@@ -1291,6 +1299,37 @@ private:
                 reinterpret_cast<char*>(res->covariances.data()),
                 reinterpret_cast<const char*>(covariances_ptr),
                 n * Dim * (Dim + 1) / 2 * sizeof(double));
+        }
+    }
+
+    void
+    CallbackLoadMap(
+        erl_gp_sdf_msgs::srv::SaveMap::Request::ConstSharedPtr req,
+        erl_gp_sdf_msgs::srv::SaveMap::Response::SharedPtr res) {
+        if (!m_sdf_mapping_) {
+            RCLCPP_WARN(this->get_logger(), "SDF mapping is not initialized");
+            res->success = false;
+            return;
+        }
+        if (req->name.empty()) {
+            RCLCPP_WARN(this->get_logger(), "Map file name is empty");
+            res->success = false;
+            return;
+        }
+        std::filesystem::path map_file = req->name;
+        map_file = std::filesystem::absolute(map_file);
+        if (!std::filesystem::exists(map_file)) {
+            RCLCPP_WARN(
+                this->get_logger(),
+                "Map file %s does not exist",
+                map_file.string().c_str());
+            res->success = false;
+            return;
+        }
+        {
+            auto lock = m_sdf_mapping_->GetLockGuard();
+            using Serializer = Serialization<GpSdfMapping>;
+            res->success = Serializer::Read(map_file, m_sdf_mapping_.get());
         }
     }
 

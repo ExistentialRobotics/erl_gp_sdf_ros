@@ -173,8 +173,10 @@ private:
         LOAD_PARAM(publish_rate);
         LOAD_PARAM(attached_to_frame);
         LOAD_PARAM(attached_frame);
+        LOAD_PARAM(world_frame);
         LOAD_PARAM(service_name);
         LOAD_PARAM(map_topic_name);
+        LOAD_PARAM(point_cloud_topic_name);
 
         // check the parameters
         if (m_setting_.resolution <= 0) {

@@ -30,7 +30,6 @@ RUN DEBIAN_FRONTEND=noninteractive apt install -y \
     ros-humble-desktop-full \
     ros-dev-tools \
     python3-colcon-common-extensions \
-    # erl_gp_sdf_ros dependencies
     ros-humble-grid-map-msgs \
     ros-humble-grid-map-ros \
     ros-humble-grid-map-rviz-plugin
