@@ -1,0 +1,10 @@
+row_margin: 1
+col_margin: 1
+valid_range_min: 0.2      
+valid_range_max: 30.0     
+azimuth_min: -3.14159265   
+azimuth_max: 3.14159265
+elevation_min: -0.35      
+elevation_max: 0.3848
+num_azimuth_lines: 900    
+num_elevation_lines: 15  

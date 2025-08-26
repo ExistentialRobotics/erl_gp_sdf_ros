@@ -63,7 +63,6 @@ docker run --privileged --restart always -t \
     --add-host=container-${CONTAINER_NAME}:127.0.0.1 \
     --name ${CONTAINER_NAME} \
     --cap-add sys_ptrace --cpus=0 --memory-swap=-1 --ipc=host \
-    --gpus all \
     ${DOCKER_IMAGE} bash -l
 
 echo "Container ${CONTAINER_NAME} created successfully."

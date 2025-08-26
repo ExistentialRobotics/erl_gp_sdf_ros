@@ -133,6 +133,7 @@ private:
         this->declare_parameter("publish_rate", m_setting_.publish_rate);
         this->declare_parameter("attached_to_frame", m_setting_.attached_to_frame);
         this->declare_parameter("attached_frame", m_setting_.attached_frame);
+        this->declare_parameter("world_frame", m_setting_.world_frame);
         this->declare_parameter("service_name", m_setting_.service_name);
         this->declare_parameter("map_topic_name", m_setting_.map_topic_name);
     }
@@ -173,6 +174,7 @@ private:
         LOAD_PARAM(publish_rate);
         LOAD_PARAM(attached_to_frame);
         LOAD_PARAM(attached_frame);
+        LOAD_PARAM(world_frame);
         LOAD_PARAM(service_name);
         LOAD_PARAM(map_topic_name);
 
