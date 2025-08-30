@@ -1,0 +1,4 @@
+/**:
+    ros__parameters:
+        scan_type: sensor_msgs/msg/LaserScan
+        scan_frame_type: erl::geometry::LidarFrame2D<float>

@@ -1,0 +1,53 @@
+test_query:
+    max_test_valid_distance_var: 1
+    search_area_half_size: 4  # should be around max sdf
+    num_neighbor_gps: 4
+    use_smallest: true  # use the smallest distance as the prediction
+    compute_gradient: true  # whether to compute gradient
+    compute_gradient_variance: true  # whether to compute gradient variance
+    compute_covariance: true  # whether to compute covariance
+    use_gp_covariance: false
+    retrain_outdated: true  # whether to retrain the trained but outdated GPs
+    use_global_buffer: true  # whether to use the global buffer for test queries
+num_threads: 64
+update_hz: 60
+sensor_noise: 0.01
+gp_sdf_area_scale: 5    # should be larger than 2x max sdf when use_smallest is false: 7
+max_valid_gradient_var: 0.1
+invalid_position_var: 0.25
+offset_distance: 0.0
+sdf_gp:
+    sign_method: "kExternal"
+    hybrid_sign_methods: [ "kNormalGp", "kExternal" ]
+    hybrid_sign_threshold: 0.2
+    normal_scale: 100.0
+    softmin_temperature: 10.0
+    sign_gp_offset_distance: 0.01
+    edf_gp_offset_distance: 0.0
+    sign_gp:
+        kernel_type: erl::covariance::ReducedRankMatern32<float, 2>
+        kernel_setting_type: erl::covariance::ReducedRankCovariance<float>::Setting
+        kernel:
+            x_dim: 2
+            alpha: 1
+            scale: 2
+            scale_mix: 1
+            weights: [ ]
+            max_num_basis: -1
+            num_basis: [ 10, 10 ]
+            boundaries: [ 2.5, 2.5 ]
+            accumulated: true
+        max_num_samples: 256   # max dataset size
+        no_gradient_observation: false
+    edf_gp:
+        kernel_type: erl::covariance::Matern32<float, 2>
+        kernel_setting_type: erl::covariance::Covariance<float>::Setting
+        kernel:
+            x_dim: 2
+            alpha: 1
+            scale: 0.3
+            scale_mix: 1
+            weights: [ ]
+        log_lambda: 20
+        max_num_samples: 256   # max dataset size
+        no_gradient_observation: true

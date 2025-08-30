@@ -1,0 +1,11 @@
+# From /<your ns>/.../scan
+valid_range_min: 0.9          # from range_min
+valid_range_max: 130.0        # from range_max
+angle_min: -3.141592025756836 # from angle_min (≈ -π rad)
+angle_max:  3.141592025756836 # from angle_max (≈  +π rad)
+num_rays: 899                  # computed from angles + increment
+# your tuning params (leave as-is or adjust)
+discontinuity_detection: false
+discontinuity_factor: 10
+rolling_diff_discount: 0.9
+min_partition_size: 5

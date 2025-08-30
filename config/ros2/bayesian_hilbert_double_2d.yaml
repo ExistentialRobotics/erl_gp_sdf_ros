@@ -1,4 +1,4 @@
-sdf_mapping_node:
+/**:
     ros__parameters:
         surface_mapping_setting_type: erl::gp_sdf::BayesianHilbertSurfaceMapping<double, 2>::Setting
         surface_mapping_setting_file: config/template/bayesian_hilbert_mapping_2d_double.yaml
