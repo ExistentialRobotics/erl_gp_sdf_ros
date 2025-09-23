@@ -146,7 +146,7 @@ def generate_launch_description():
 
         scan_frame_config = os.path.join(pkg_share, "config", "lidar_frame_2d_gazebo.yaml")
 
-        odom_topic = f"/{robot}/platform/odom"
+        odom_topic = f"/{robot}/lidar_odometry/pose"
 
         scan_topic = f"/{robot}/sensors/lidar3d_0/scan"
 
@@ -260,9 +260,9 @@ def generate_launch_description():
 
                 "resolution": 0.01,
 
-                "x_cells": 701,
+                "x_cells": 1701,
 
-                "y_cells": 701,
+                "y_cells": 1701,
 
                 "x": 0.0, "y": 0.0, "z": 0.0,
 
