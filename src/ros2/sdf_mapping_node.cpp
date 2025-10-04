@@ -929,6 +929,9 @@ private:
         if (m_setting_.scan_stride > 1) {
             scan = DownsampleEigenMatrix(scan, m_setting_.scan_stride, 1);
         }
+        for (long i = 0; i < scan.size(); ++i) {
+            if (!std::isfinite(scan[i])) { scan[i] = 0.0; }  // invalid range
+        }
         m_lidar_scan_2d_.reset();
         return true;
     }
