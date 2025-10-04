@@ -84,7 +84,7 @@ def generate_launch_description():
 
     world_frame_arg = DeclareLaunchArgument(
 
-        "world_frame", default_value="odom",
+        "world_frame", default_value="map",
 
         description="World frame that SDF is attached to (typically odom)"
 
