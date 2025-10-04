@@ -921,6 +921,9 @@ private:
         if (m_setting_.scan_stride > 1) {
             scan = DownsampleEigenMatrix(scan, m_setting_.scan_stride, 1);
         }
+        for (long i = 0; i < scan.size(); ++i) {
+            if (!std::isfinite(scan(i, 0))) { scan(i, 0) = 0.0; }  // invalid range
+        }
         m_lidar_scan_2d_.reset();
         return true;
     }
@@ -1204,6 +1207,7 @@ private:
         gradients.setConstant(0.0);
         variances.setConstant(1.0e6);
 
+        RCLCPP_INFO(this->get_logger(), "Processing SDF query for %d points", n);
         auto t1 = this->get_clock()->now();
         bool ok = m_sdf_mapping_->Test(positions, distances, gradients, variances, covariances);
         auto t2 = this->get_clock()->now();

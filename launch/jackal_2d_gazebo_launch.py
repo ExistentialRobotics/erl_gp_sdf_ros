@@ -36,7 +36,7 @@ def generate_launch_description():
 
     namespace_arg = DeclareLaunchArgument(
 
-        "namespace", default_value="jackal2", description="Namespace for the robot (e.g., jackal2)"
+        "namespace", default_value="", description="Namespace for the robot (e.g., jackal2)"
 
     )
 
@@ -92,7 +92,7 @@ def generate_launch_description():
 
     sensor_frame_arg = DeclareLaunchArgument(
 
-        "sensor_frame", default_value="lidar3d_0_laser",
+        "sensor_frame", default_value=f"jackal2/os_sensor",
 
         description="Sensor frame ID published in TF (prefix with robot if your TF tree uses it)"
 
@@ -145,10 +145,11 @@ def generate_launch_description():
         )
 
         scan_frame_config = os.path.join(pkg_share, "config", "lidar_frame_2d_gazebo.yaml")
+        #scan_frame_config = os.path.join(pkg_share, "config", "lidar_frame_3d_360.yaml")
 
-        odom_topic = f"/{robot}/lidar_odometry/pose"
+        odom_topic = f"/{robot}/dlo/odom_node/odom"
 
-        scan_topic = f"/{robot}/sensors/lidar3d_0/scan"
+        scan_topic = f"/scan"
 
         config_file = os.path.join(pkg_share, "config", "ros2", f"{surf_mapping_method}_{precision}_2d.yaml")
 
@@ -258,11 +259,11 @@ def generate_launch_description():
 
             parameters=[{
 
-                "resolution": 0.01,
+                "resolution": 0.05,
 
-                "x_cells": 1701,
+                "x_cells": 160,
 
-                "y_cells": 1701,
+                "y_cells": 160,
 
                 "x": 0.0, "y": 0.0, "z": 0.0,
 
