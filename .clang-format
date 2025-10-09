@@ -39,9 +39,14 @@ BreakConstructorInitializers: BeforeColon
 BreakInheritanceList: BeforeColon
 ColumnLimit: 100
 CompactNamespaces: false
+ConstructorInitializerIndentWidth: 4
 ContinuationIndentWidth: 4
 IncludeBlocks: Regroup
 IncludeCategories:
+    -   Regex: 'compile_definitions.hpp'
+        Priority: -1
+        SortPriority: -1
+        CaseSensitive: false
     -   Regex: '^<.+(\.h|\.hpp)>'
         Priority: 3
         SortPriority: 3
@@ -72,9 +77,9 @@ MaxEmptyLinesToKeep: 1
 NamespaceIndentation: All
 ObjCSpaceAfterProperty: false
 ObjCSpaceBeforeProtocolList: true
-PackConstructorInitializers: Never
+PackConstructorInitializers: NextLineOnly
 PointerAlignment: Right
-ReflowComments: true
+ReflowComments: Always
 SeparateDefinitionBlocks: Always
 SpaceAfterCStyleCast: true
 SpaceAfterLogicalNot: false

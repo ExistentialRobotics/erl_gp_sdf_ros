@@ -3,6 +3,7 @@ local_bhm:
         diagonal_sigma: true
         min_distance: 0.3
         max_distance: 3.5
+        sampling_area_scale: 1
         free_points_per_meter: 3
         free_sampling_margin: 0.001
         init_mu: 0.0
@@ -17,9 +18,10 @@ local_bhm:
         scale: 0.025
         scale_mix: 1
         weights: [ ]
+    min_dataset_size: 20
     max_dataset_size: 2000
     hit_buffer_size: 0
-    surface_resolution: 0.1
+    surface_grid_size: 5
 ray_selector:
     azimuth_min: -0.55
     azimuth_max: 0.55
@@ -27,6 +29,10 @@ ray_selector:
     elevation_max: 0.43
     num_azimuth_angles: 640
     num_elevation_angles: 480
+    transform:
+        - [ 1, 0, 0, 0 ]
+        - [ 0, 1, 0, 0 ]
+        - [ 0, 0, 1, 0 ]
 tree:
     resolution: 0.1  # 0.15 # 0.1
     tree_depth: 16
@@ -40,21 +46,34 @@ tree:
     aabb:
         center: [ 0, 0, 0 ]
         half_sizes: [ 0, 0, 0 ]
-hinged_grid_size: 5
-surface_max_abs_logodd: 2
-surface_bad_abs_logodd: 100
-surface_step_size: 0.001
-faster_prediction: true
-max_adjust_tries: 2
-var_scale: 0.01
-var_max: 1.5
+update_tree:
+    with_count: false
+    parallel: true
+    lazy_eval: true
+    discrete: true
+update_map:
+    method: 2
+    surface_max_abs_logodd: 2
+    surface_bad_abs_logodd: 100
+    surface_step_size: 0.001
+    max_num_points: 50000
+    max_num_voxels: 20000
+    max_adjust_tries: 1  # 2
+    var_scale: 0.01
+    var_max: 1.5
+    update_with_cuda: false
+    cuda_device_id: 0
+    update_batch_size: 128
 scaling: 1.0
 bhm_depth: 15
+weight_sync: false
+sync_method: "bayesian"
+hinged_grid_size: 5
 bhm_overlap: 0.08  # 0.15 # 0.12
-update_with_cuda: false
-cuda_device_id: 0
-update_batch_size: 128
+bhm_overlap_sync: 1
+build_bhm_on_hit: true
+faster_prediction: true
+surface_log_odds: 0.0
 bhm_test_margin: 0.07 # 0.12 # 0.1
 test_knn: 1
 test_batch_size: 1000
-build_bhm_on_hit: true

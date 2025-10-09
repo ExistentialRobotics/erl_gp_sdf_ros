@@ -1,3 +1,4 @@
+#include "erl_common/block_timer.hpp"
 #include "erl_common/eigen.hpp"
 #include "erl_common/yaml.hpp"
 #include "erl_geometry/abstract_occupancy_octree.hpp"
@@ -17,10 +18,10 @@
 #include <ros/ros.h>
 #include <rviz/default_plugin/point_cloud_transformers.h>
 #include <sensor_msgs/Image.h>
+#include <sensor_msgs/image_encodings.h>
 #include <sensor_msgs/LaserScan.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <sensor_msgs/Temperature.h>
-#include <sensor_msgs/image_encodings.h>
 #include <tf/transform_datatypes.h>
 #include <tf2_eigen/tf2_eigen.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>

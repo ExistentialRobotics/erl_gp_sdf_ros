@@ -9,9 +9,9 @@ ENV LANG=${LOCALE}
 ENV LANGUAGE=${LOCALE}
 ENV LC_ALL=${LOCALE}
 
-####################################################################################################
-# erl_common dependencies
-####################################################################################################
+###########################
+# erl_common dependencies #
+###########################
 RUN cp /etc/apt/sources.list /etc/apt/sources.list.backup &&\
     if [ -n "$APT_MIRROR" ]; then \
     sed -i "s|http://archive.ubuntu.com/ubuntu/|$APT_MIRROR|g" /etc/apt/sources.list; \
@@ -49,25 +49,34 @@ RUN DEBIAN_FRONTEND=noninteractive apt install -y \
     plplot-tcl-dev \
     plplot-driver-cairo \
     python3-plplot \
+    python3-plplot-qt \
     octave-plplot \
     libcairomm-1.0-dev \
     libyaml-cpp-dev \
     pybind11-dev \
     libgtest-dev
 
-RUN touch /usr/lib/python3/dist-packages/_Pltk_init.so
-RUN touch /usr/lib/python3/dist-packages/_plplotc.so
-RUN touch /usr/lib/python3/dist-packages/plplot_pyqt5.so
+RUN PYTHON_VERSION=$(python3 -c "import sys;print(sys.version_info.major,sys.version_info.minor,sep='')") && \
+    ln -s /usr/lib/python3/dist-packages/_Pltk_init.cpython-${PYTHON_VERSION}-x86_64-linux-gnu.so /usr/lib/python3/dist-packages/_Pltk_init.so && \
+    ln -s /usr/lib/python3/dist-packages/_plplotc.cpython-${PYTHON_VERSION}-x86_64-linux-gnu.so /usr/lib/python3/dist-packages/_plplotc.so && \
+    ln -s /usr/lib/python3/dist-packages/plplot_pyqt5.cpython-${PYTHON_VERSION}-x86_64-linux-gnu.so /usr/lib/python3/dist-packages/plplot_pyqt5.so
 RUN touch /usr/bin/pltek
 RUN sed 's/..\/..\/..\/..\/..\/include/..\/..\/..\/..\/include/g' \
     /usr/lib/x86_64-linux-gnu/cmake/yaml-cpp/yaml-cpp-config.cmake
 
+# install abseil-cpp
+RUN git clone --recursive https://github.com/abseil/abseil-cpp.git && cd abseil-cpp && \
+    git checkout 20240722.1 && mkdir -p build && cd build && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="${CXXFLAGS} -DNDEBUG" \
+    -DCMAKE_CXX_STANDARD=17 -DBUILD_SHARED_LIBS=ON -DABSL_PROPAGATE_CXX_STD=ON && \
+    make -j`nproc` && make install && cd /root && rm -rf abseil-cpp
+
 # It is 300000 by default, which slows down OpenMP programs.
 ENV GOMP_SPINCOUNT=1
 
-####################################################################################################
-# erl_geometry dependencies
-####################################################################################################
+#############################
+# erl_geometry dependencies #
+#############################
 WORKDIR /root
 # nanoflann
 RUN git clone https://github.com/jlblancoc/nanoflann && \
@@ -76,12 +85,6 @@ RUN git clone https://github.com/jlblancoc/nanoflann && \
     cmake .. -DCMAKE_BUILD_TYPE=Release && \
     make install && \
     cd /root && rm -rf nanoflann
-# install abseil-cpp
-RUN git clone --recursive https://github.com/abseil/abseil-cpp.git && cd abseil-cpp && \
-    git checkout 20240722.1 && mkdir -p build && cd build && \
-    cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="${CXXFLAGS} -DNDEBUG" \
-    -DCMAKE_CXX_STANDARD=17 -DBUILD_SHARED_LIBS=ON -DABSL_PROPAGATE_CXX_STD=ON && \
-    make -j`nproc` && make install && cd /root && rm -rf abseil-cpp
 # install QHull
 RUN git clone --recursive https://github.com/qhull/qhull.git && cd qhull && \
     git checkout 2020.2 && mkdir -p my_build && cd my_build && \
@@ -94,6 +97,8 @@ RUN wget https://github.com/Kitware/CMake/releases/download/v3.24.0/cmake-3.24.0
     ./cmake-3.24.0-linux-x86_64.sh --skip-license --prefix=/usr/local && \
     rm cmake-3.24.0-linux-x86_64.sh
 # install Open3D
+# Open3D requires eigen3 >= 3.4 but Ubuntu 20.04 provides 3.3
+# we cannot use -DUSE_SYSTEM_EIGEN3=ON
 RUN git clone --recursive https://github.com/isl-org/Open3D.git && cd Open3D && \
     git checkout 1e7b174 && echo y | util/install_deps_ubuntu.sh && mkdir -p build && \
     cd build && \
@@ -113,9 +118,9 @@ RUN git clone --recursive https://github.com/isl-org/Open3D.git && cd Open3D && 
     -DBUILD_BENCHMARKS=OFF && \
     make -j`nproc` && make install && \
     cd /root && rm -rf Open3D
-####################################################################################################
-# ROS Noetic
-####################################################################################################
+##############
+# ROS Noetic #
+##############
 RUN DEBIAN_FRONTEND=noninteractive apt update -y
 RUN DEBIAN_FRONTEND=noninteractive apt install -y ubuntu-desktop-minimal \
     software-properties-common lsb-release vim locales apt-utils ca-certificates curl iproute2
@@ -140,24 +145,33 @@ RUN DEBIAN_FRONTEND=noninteractive apt install -y \
     libgomp1
 RUN rosdep init && rosdep fix-permissions && rosdep update
 
-####################################################################################################
-# erl_gp_sdf_ros dependencies
-####################################################################################################
+###############################
+# erl_gp_sdf_ros dependencies #
+###############################
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ros-noetic-grid-map-ros \
-    ros-noetic-grid-map-rviz-plugin
+    ros-noetic-grid-map-rviz-plugin \
+    ros-noetic-tf2 \
+    ros-noetic-tf2-eigen \
+    ros-noetic-tf2-geometry-msgs \
+    ros-noetic-tf2-kdl \
+    ros-noetic-tf2-msgs \
+    ros-noetic-tf2-py \
+    ros-noetic-tf2-ros \
+    ros-noetic-tf2-sensor-msgs \
+    ros-noetic-tf2-tools
 
-####################################################################################################
-# Miscellaneous
-####################################################################################################
+#################
+# Miscellaneous #
+#################
 # Install git-credential-manager for git authentication
 RUN wget https://github.com/git-ecosystem/git-credential-manager/releases/download/v2.6.1/gcm-linux_amd64.2.6.1.deb && \
     DEBIAN_FRONTEND=noninteractive apt install -y ./gcm-linux_amd64.2.6.1.deb && \
     rm gcm-linux_amd64.2.6.1.deb && ln -s /usr/local/bin/git-credential-manager /usr/bin/git-credential-manager
 
-####################################################################################################
-# ZED camera
-####################################################################################################
+##############
+# ZED camera #
+##############
 # install zed-ros-wrapper
 # https://www.stereolabs.com/developers/release/4.2
 # https://www.stereolabs.com/docs/installation/docker
@@ -179,9 +193,9 @@ RUN mkdir -p /opt/zed_camera_ws/src && \
 COPY common.yaml /opt/zed_camera_ws/src/zed-ros-wrapper/zed_wrapper/params/common.yaml
 ENV DISABLE_ROS1_EOL_WARNINGS=1
 
-####################################################################################################
-# Clean up
-####################################################################################################
+############
+# Clean up #
+############
 RUN apt-get clean  && rm -rf /var/lib/apt/lists/*
 RUN if [ -n "$APT_MIRROR" ]; then \
     mv /etc/apt/sources.list.backup /etc/apt/sources.list; \

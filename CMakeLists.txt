@@ -9,6 +9,7 @@ if (NOT COMMAND erl_project_setup)
     find_package(erl_cmake_tools REQUIRED)
 endif ()
 erl_project_setup(ERL_PACKAGES erl_gp_sdf)
+include(cmake/erl_gp_sdf_ros_dependencies.cmake)
 erl_setup_ros(
     CATKIN_COMPONENTS
     roscpp

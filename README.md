@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![ROS1](https://img.shields.io/badge/ROS1-noetic-blue)](http://wiki.ros.org/)
 [![ROS2](https://img.shields.io/badge/ROS2-humble-blue)](https://docs.ros.org/)
+[![ROS2](https://img.shields.io/badge/ROS2-jazzy-blue)](https://docs.ros.org/)
 
 |                                   |                                          |
 | --------------------------------- | ---------------------------------------- |
@@ -262,3 +263,12 @@ Pre-configured RViz files are available in the `rviz/` directory for ROS1 or `rv
 - `cow_and_lady.rviz`: Configuration for Cow and Lady dataset
 - `jackal_3d_lidar.rviz`: Configuration for 3D LiDAR visualization
 - `zed_camera.rviz`: Configuration for camera-based mapping
+
+## Docker Usage
+
+We provide Dockerfiles for different ROS distributions in the [docker](./docker) directory. Please
+run the `build.bash` script along with the Dockerfile to build the image you need.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

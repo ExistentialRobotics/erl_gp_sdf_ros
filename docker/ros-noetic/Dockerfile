@@ -7,9 +7,9 @@ RUN cp /etc/apt/sources.list /etc/apt/sources.list.backup &&\
     sed -i "s|http://archive.ubuntu.com/ubuntu/|$APT_MIRROR|g" /etc/apt/sources.list; \
     fi
 
-####################################################################################################
-# ROS Noetic
-####################################################################################################
+##############
+# ROS Noetic #
+##############
 RUN DEBIAN_FRONTEND=noninteractive apt update -y
 RUN DEBIAN_FRONTEND=noninteractive apt install -y ubuntu-desktop-minimal \
     software-properties-common lsb-release vim locales apt-utils ca-certificates curl iproute2
@@ -34,9 +34,9 @@ RUN DEBIAN_FRONTEND=noninteractive apt install -y \
     libgomp1
 RUN rosdep init && rosdep fix-permissions && rosdep update
 
-####################################################################################################
-# RealSense
-####################################################################################################
+#############
+# RealSense #
+#############
 # https://github.com/IntelRealSense/realsense-ros/tree/ros1-legacy
 # https://dev.intelrealsense.com/docs/ros1-wrapper
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -58,24 +58,33 @@ RUN echo "deb [signed-by=/etc/apt/keyrings/librealsense.pgp] https://librealsens
     librealsense2-gl-dev \
     librealsense2-gl-dbg
 
-####################################################################################################
-# erl_gp_sdf_ros dependencies
-####################################################################################################
+###############################
+# erl_gp_sdf_ros dependencies #
+###############################
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ros-noetic-grid-map-ros \
-    ros-noetic-grid-map-rviz-plugin
+    ros-noetic-grid-map-rviz-plugin \
+    ros-noetic-tf2 \
+    ros-noetic-tf2-eigen \
+    ros-noetic-tf2-geometry-msgs \
+    ros-noetic-tf2-kdl \
+    ros-noetic-tf2-msgs \
+    ros-noetic-tf2-py \
+    ros-noetic-tf2-ros \
+    ros-noetic-tf2-sensor-msgs \
+    ros-noetic-tf2-tools
 
-####################################################################################################
-# Miscellaneous
-####################################################################################################
+#################
+# Miscellaneous #
+#################
 # Install git-credential-manager for git authentication
 RUN wget https://github.com/git-ecosystem/git-credential-manager/releases/download/v2.6.1/gcm-linux_amd64.2.6.1.deb && \
     DEBIAN_FRONTEND=noninteractive apt install -y ./gcm-linux_amd64.2.6.1.deb && \
     rm gcm-linux_amd64.2.6.1.deb && ln -s /usr/local/bin/git-credential-manager /usr/bin/git-credential-manager
 
-####################################################################################################
-# Clean up
-####################################################################################################
+############
+# Clean up #
+############
 RUN apt-get clean  && rm -rf /var/lib/apt/lists/*
 RUN if [ -n "$APT_MIRROR" ]; then \
     mv /etc/apt/sources.list.backup /etc/apt/sources.list; \

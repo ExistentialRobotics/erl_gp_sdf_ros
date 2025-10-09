@@ -1,3 +1,4 @@
+#include "erl_common/block_timer.hpp"
 #include "erl_common/eigen.hpp"
 #include "erl_common/yaml.hpp"
 #include "erl_geometry/abstract_occupancy_octree.hpp"
@@ -753,7 +754,7 @@ private:
                 const int& head = m_odom_queue_head_;
                 if (head < 0) {
                     RCLCPP_WARN(this->get_logger(), "No odometry message available");
-                    return {false, {}, {}};
+                    return {false, Rotation::Identity(), Translation::Zero()};
                 }
                 geometry_msgs::msg::TransformStamped* transform_ptr = nullptr;
                 for (int i = head; i >= 0; --i) {
@@ -776,7 +777,7 @@ private:
                         this->get_logger(),
                         "No odometry message available for time %f",
                         time.seconds());
-                    return {false, {}, {}};
+                    return {false, Rotation::Identity(), Translation::Zero()};
                 }
                 transform = *transform_ptr;  // copy the transform
             }
@@ -796,7 +797,7 @@ private:
                         transform.child_frame_id.c_str(),
                         m_setting_.sensor_frame.c_str(),
                         ex.what());
-                    return {false, {}, {}};
+                    return {false, Rotation::Identity(), Translation::Zero()};
                 }
                 tf2::doTransform(tf_child_to_sensor, transform, transform);
             }
@@ -838,7 +839,7 @@ private:
                 rclcpp::Duration::from_seconds(5.0));
         } catch (tf2::TransformException& ex) {
             RCLCPP_WARN(this->get_logger(), "%s", ex.what());
-            return {false, {}, {}};  // no valid transform
+            return {false, Rotation::Identity(), Translation::Zero()};
         }
         Matrix4 pose = tf2::transformToEigen(transform_stamped).matrix().cast<Dtype>();
         MatrixX rotation;
@@ -930,7 +931,7 @@ private:
             scan = DownsampleEigenMatrix(scan, m_setting_.scan_stride, 1);
         }
         for (long i = 0; i < scan.size(); ++i) {
-            if (!std::isfinite(scan[i])) { scan[i] = 0.0; }  // invalid range
+            if (!std::isfinite(scan(i, 0))) { scan(i, 0) = 0.0; }  // invalid range
         }
         m_lidar_scan_2d_.reset();
         return true;

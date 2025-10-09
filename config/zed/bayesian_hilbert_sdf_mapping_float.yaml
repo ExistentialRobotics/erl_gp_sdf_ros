@@ -1,4 +1,5 @@
 test_query:
+    default_invalid_sdf: -1
     max_test_valid_distance_var: 0.02
     search_area_half_size: 2
     num_neighbor_gps: 8
@@ -42,5 +43,6 @@ sdf_gp:
             scale_mix: 1
             weights: [ ]
         log_lambda: 40
+        duplicate_epsilon: 0.0
         max_num_samples: 96   # max dataset size
         no_gradient_observation: true

@@ -1,4 +1,4 @@
-FROM stereolabs/zed:5.0-gl-devel-cuda12.8-ubuntu22.04
+FROM stereolabs/zed:5.0-gl-devel-cuda12.8-ubuntu24.04
 
 ARG TZ=America/Los_Angeles
 ARG LOCALE=en_US.UTF-8
@@ -10,8 +10,8 @@ ENV LANG=${LOCALE}
 ENV LANGUAGE=${LOCALE}
 ENV LC_ALL=${LOCALE}
 
-# make sure it is 22.04
-RUN . /etc/os-release && if [ "$VERSION_ID" != "22.04" ]; then echo "This Dockerfile is for Ubuntu 22.04!" && exit 1; fi
+# make sure it is 24.04
+RUN . /etc/os-release && if [ "$VERSION_ID" != "24.04" ]; then echo "This Dockerfile is for Ubuntu 24.04!" && exit 1; fi
 
 ###########################
 # erl_common dependencies #
@@ -53,11 +53,13 @@ RUN DEBIAN_FRONTEND=noninteractive apt install -y \
     libplplot-dev \
     libplplot-java \
     libplplot-data \
-    libplplotada4.1 \
+    libplplotada4.2 \
+    libplplotada-dev \
     plplot-tcl-dev \
     plplot-driver-cairo \
     python3-plplot \
     python3-plplot-qt \
+    octave-plplot \
     libcairomm-1.0-dev \
     libyaml-cpp-dev \
     pybind11-dev \
@@ -94,18 +96,12 @@ RUN git clone https://github.com/jlblancoc/nanoflann && \
     make install && \
     cd /root && rm -rf nanoflann
 
-# Open3D 0.19.0 requires at least CMake 3.24
-RUN wget https://github.com/Kitware/CMake/releases/download/v3.24.0/cmake-3.24.0-linux-x86_64.sh &&\
-    chmod +x cmake-3.24.0-linux-x86_64.sh && \
-    ./cmake-3.24.0-linux-x86_64.sh --skip-license --prefix=/usr/local && \
-    rm cmake-3.24.0-linux-x86_64.sh
-
 # Ubuntu has cmake>=3.28, Open3D 0.19.0 requires at least CMake 3.24
 # install Open3D
 RUN git clone --recursive https://github.com/isl-org/Open3D.git && cd Open3D && \
     git checkout 1e7b174 && echo y | util/install_deps_ubuntu.sh && mkdir -p build && \
     cd build && \
-    PATH="/usr/local/bin:${PATH}" cmake .. \
+    cmake .. \
     -DBUILD_SHARED_LIBS=ON \
     -DCMAKE_BUILD_TYPE=Release \
     -DUSE_SYSTEM_EIGEN3=ON \
@@ -123,28 +119,28 @@ RUN git clone --recursive https://github.com/isl-org/Open3D.git && cd Open3D && 
     make -j`nproc` && make install && \
     cd /root && rm -rf Open3D
 
-##############################################
-# ROS Humble and erl_gp_sdf_ros dependencies #
-##############################################
+#############################################
+# ROS Jazzy and erl_gp_sdf_ros dependencies #
+#############################################
 RUN add-apt-repository universe
 RUN curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo $VERSION_CODENAME)_all.deb" && dpkg -i /tmp/ros2-apt-source.deb && rm /tmp/ros2-apt-source.deb
 
 RUN DEBIAN_FRONTEND=noninteractive apt update -y && apt upgrade -y && apt install -y \
-    ros-humble-desktop-full \
+    ros-jazzy-desktop-full \
     ros-dev-tools \
     python3-colcon-common-extensions \
-    ros-humble-grid-map-msgs \
-    ros-humble-grid-map-ros \
-    ros-humble-grid-map-rviz-plugin \
-    ros-humble-tf2 \
-    ros-humble-tf2-eigen \
-    ros-humble-tf2-geometry-msgs \
-    ros-humble-tf2-kdl \
-    ros-humble-tf2-msgs \
-    ros-humble-tf2-py \
-    ros-humble-tf2-ros \
-    ros-humble-tf2-sensor-msgs \
-    ros-humble-tf2-tools
+    ros-jazzy-grid-map-msgs \
+    ros-jazzy-grid-map-ros \
+    ros-jazzy-grid-map-rviz-plugin \
+    ros-jazzy-tf2 \
+    ros-jazzy-tf2-eigen \
+    ros-jazzy-tf2-geometry-msgs \
+    ros-jazzy-tf2-kdl \
+    ros-jazzy-tf2-msgs \
+    ros-jazzy-tf2-py \
+    ros-jazzy-tf2-ros \
+    ros-jazzy-tf2-sensor-msgs \
+    ros-jazzy-tf2-tools
 RUN rosdep init && rosdep update
 
 #################
@@ -159,18 +155,23 @@ RUN wget https://github.com/git-ecosystem/git-credential-manager/releases/downlo
 # ZED camera #
 ##############
 # install zed-ros2-wrapper
-RUN chown -R root:root /usr/local/lib/python3.10 && chmod -R 755 /usr/local/lib/python3.10
+RUN chown -R root:root /usr/local/lib/python3.12 && chmod -R 755 /usr/local/lib/python3.12
 RUN mkdir -p /opt/zed_camera_ws/src && \
     cd /opt/zed_camera_ws/src && \
     git clone --recursive https://github.com/stereolabs/zed-ros2-wrapper.git && \
     cd .. && \
-    . /opt/ros/humble/setup.sh && \
-    rosdep install --from-paths src --ignore-src -r -y --rosdistro humble && \
+    . /opt/ros/jazzy/setup.sh && \
+    rosdep install --from-paths src --ignore-src -r -y --rosdistro jazzy && \
     VERBOSE=1 colcon build --event-handlers console_direct+ --cmake-args -DCMAKE_BUILD_TYPE=Release
 COPY common_stereo.yaml /opt/zed_camera_ws/src/zed-ros2-wrapper/zed_wrapper/config/common_stereo.yaml
 
+RUN userdel -r ubuntu
+
+# pyqtplot needs the pyqtgraph.
 # the base image provides both numpy1.x and 2.x but numpy2.x is not compatible.
-RUN sudo pip uninstall numpy -y
+RUN DEBIAN_FRONTEND=noninteractive apt install -y \
+    python3-pyqtgraph && \
+    sudo pip uninstall numpy --break-system-packages -y
 
 ############
 # Clean up #
