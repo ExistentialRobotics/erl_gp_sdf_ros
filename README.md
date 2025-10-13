@@ -1,5 +1,6 @@
 # erl_gp_sdf_ros
 
+[![Tags](https://img.shields.io/github/v/tag/ExistentialRobotics/erl_gp_sdf_ros?label=version)](https://github.com/ExistentialRobotics/erl_gp_sdf_ros/tags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![ROS1](https://img.shields.io/badge/ROS1-noetic-blue)](http://wiki.ros.org/)
 [![ROS2](https://img.shields.io/badge/ROS2-humble-blue)](https://docs.ros.org/)

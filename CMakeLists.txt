@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(erl_gp_sdf_ros LANGUAGES CXX #
-        VERSION 0.1.0 #
+        VERSION 0.2.0 #
         DESCRIPTION "erl_gp_sdf_ros is a ROS wrapper of erl_gp_sdf.")
 message(STATUS "Configuring ${PROJECT_NAME} ${PROJECT_VERSION}")
 
