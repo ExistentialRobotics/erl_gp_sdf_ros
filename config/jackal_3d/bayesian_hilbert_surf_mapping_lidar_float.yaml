@@ -17,11 +17,11 @@ local_bhm:
         x_dim: 3
         scale: 0.02
         scale_mix: 1
-        weights: []
+        weights: [ ]
     min_dataset_size: 64
     max_dataset_size: 1024
     hit_buffer_size: 0
-    surface_resolution: 0.1
+    surface_grid_size: 5
 ray_selector:
     azimuth_min: -3.141558
     azimuth_max: 3.141577
@@ -30,9 +30,9 @@ ray_selector:
     num_azimuth_angles: 512
     num_elevation_angles: 32
     transform:
-        - [1, 0, 0, 0]
-        - [0, 1, 0, 0]
-        - [0, 0, 1, 0]
+        - [ 1, 0, 0, 0 ]
+        - [ 0, 1, 0, 0 ]
+        - [ 0, 0, 1, 0 ]
 tree:
     resolution: 0.15
     tree_depth: 16
@@ -44,8 +44,8 @@ tree:
     use_change_detection: false
     use_aabb_limit: false
     aabb:
-        center: [0, 0, 0]
-        half_sizes: [0, 0, 0]
+        center: [ 0, 0, 0 ]
+        half_sizes: [ 0, 0, 0 ]
 update_tree:
     with_count: false
     parallel: true
