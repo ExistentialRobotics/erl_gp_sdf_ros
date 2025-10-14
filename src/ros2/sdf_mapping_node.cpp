@@ -433,6 +433,8 @@ public:
 
         // publish the surface points used by the sdf mapping
         if (m_setting_.publish_surface_points) {
+            RCLCPP_INFO(this->get_logger(), "Publishing surface points on %s",
+                        m_setting_.publish_surface_points_topic.c_str());
             m_pub_surface_points_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
                 m_setting_.publish_surface_points_topic,
                 1);
@@ -1175,6 +1177,15 @@ private:
             ERL_BLOCK_TIMER_MSG_TIME("Surface mapping update", surf_mapping_time);
             success = m_surface_mapping_->Update(rotation, translation, scan, are_points, in_local);
         }
+        // RCLCPP_INFO(
+        //     this->get_logger(),
+        //     "Surface map size: %zu", m_surface_mapping_->GetSurfaceDataManager().Size()
+        // );
+        // RCLCPP_INFO(
+        //     this->get_logger(),
+        //     "Surface map size: %zu", m_surface_mapping_->GetSurfaceDataSize()
+        // );
+
         {
             double time_budget_us = 1e6 / m_sdf_mapping_cfg_->update_hz;  // us
             ERL_BLOCK_TIMER_MSG("Update SDF GPs");
@@ -1378,24 +1389,37 @@ private:
 
     void
     CallbackPublishSurfacePoints() {
-        if (m_pub_surface_points_->get_subscription_count() == 0) { return; }  // no subscribers
-
         using namespace erl::gp_sdf;
+        // RCLCPP_WARN(
+        //     this->get_logger(),
+        //     "Publishing %u surface points",
+        //     static_cast<unsigned int>(surf_data_manager.Size()));
 
-        const auto& surf_data_manager = m_surface_mapping_->GetSurfaceDataManager();
+        // if (m_pub_surface_points_->get_subscription_count() == 0) { return; }  // no subscribers
+
+
+        // const auto& surf_data_manager = m_surface_mapping_->GetSurfaceDataManager();
         // std::vector<SurfaceData<double, 3>> data =
         //     m_sdf_mapping_->GetAbstractSurfaceMapping()->GetSurfaceData();
+        std::size_t surf_data_size = m_surface_mapping_->GetSurfaceDataSize();
 
         auto& msg = m_msg_surface_points_;
         msg.header.stamp = this->get_clock()->now();
         for (int i = 0; i < 8; ++i) {
-            msg.fields[i].count = static_cast<uint32_t>(surf_data_manager.Size());
+            msg.fields[i].count = static_cast<uint32_t>(surf_data_size);
         }
-        msg.width = static_cast<uint32_t>(surf_data_manager.Size());
-        msg.row_step = msg.point_step * msg.width;
+        msg.width = static_cast<uint32_t>(surf_data_size);
+        // RCLCPP_WARN(
+        //     this->get_logger(),
+        //     "Publishing %u surface points",
+        //     static_cast<unsigned int>(surf_data_size));
+
+            msg.row_step = msg.point_step * msg.width;
         msg.data.resize(msg.row_step * msg.height);
         float* ptr = reinterpret_cast<float*>(msg.data.data());
-        for (auto d: surf_data_manager) {
+        for (auto it = m_surface_mapping_->BeginSurfaceData(), it_end = m_surface_mapping_->EndSurfaceData();
+             it != it_end; ++it) {
+            const auto& d = *it;
             ptr[0] = static_cast<float>(d.position.x());
             ptr[1] = static_cast<float>(d.position.y());
             ptr[2] = Dim == 3 ? static_cast<float>(d.position[2]) : 0.0f;

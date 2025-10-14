@@ -248,6 +248,7 @@ def generate_launch_description():
                         "scan_stride": 2,
                         "scan_in_local_frame": True,
                         "publish_tree": False,
+                        "publish_surface_points": True,
                     },
                 ],
             )
