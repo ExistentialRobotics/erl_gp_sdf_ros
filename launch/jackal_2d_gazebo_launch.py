@@ -285,8 +285,6 @@ def generate_launch_description():
 
                 "world_frame": world_frame,
 
-                "target_frame": world_frame,  
-
                 "attached_frame": sensor_frame,
 
                 "service_name": "sdf_query",
