@@ -242,7 +242,7 @@ def generate_launch_description():
                         "odom_topic": "/kinect/vrpn_client/estimated_transform",
                         "odom_msg_type": "geometry_msgs/msg/TransformStamped",
                         "sensor_frame": "camera_rgb_optical_frame",
-                        "scan_topic": "/camera/depth_registered/points",
+                        "scan_topic.path": "/camera/depth_registered/points",
                         "scan_type": "sensor_msgs/msg/PointCloud2",
                         "scan_frame_setting_file": scan_frame_config,
                         "scan_stride": 2,
@@ -277,9 +277,9 @@ def generate_launch_description():
                 "attached_to_frame": True,
                 "world_frame": "map",
                 "attached_frame": "camera_frame",
-                "service_name": "sdf_query",
-                "map_topic_name": "sdf_grid_map",
-                "point_cloud_topic_name": "sdf_point_cloud",
+                "sdf_query_service.path": "sdf_query",
+                "map_topic.path": "sdf_grid_map",
+                "point_cloud_topic.path": "sdf_point_cloud",
             }
         ],
         condition=IfCondition(LaunchConfiguration("visualize_sdf")),
@@ -302,7 +302,7 @@ def generate_launch_description():
         package="rqt_plot",
         executable="rqt_plot",
         name="rqt_plot",
-        arguments=["/update_time/temperature", "/query_time/temperature"],
+        arguments=["/update_time/data", "/query_time/data"],
         condition=IfCondition(LaunchConfiguration("open_rqt_plot")),
     )
 

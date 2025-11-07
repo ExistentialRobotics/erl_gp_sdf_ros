@@ -18,10 +18,10 @@
 #include <ros/ros.h>
 #include <rviz/default_plugin/point_cloud_transformers.h>
 #include <sensor_msgs/Image.h>
-#include <sensor_msgs/image_encodings.h>
 #include <sensor_msgs/LaserScan.h>
 #include <sensor_msgs/PointCloud2.h>
-#include <sensor_msgs/Temperature.h>
+#include <sensor_msgs/image_encodings.h>
+#include <std_msgs/Float64.h>
 #include <tf/transform_datatypes.h>
 #include <tf2_eigen/tf2_eigen.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -31,7 +31,33 @@
 
 using namespace erl::common;
 
-struct SdfMappingNodeSetting : Yamlable<SdfMappingNodeSetting> {
+enum OdomType {
+    Odometry = 0,
+    TransformStamped = 1,
+};
+
+ERL_REFLECT_ENUM_SCHEMA(
+    OdomType,
+    2,
+    ERL_REFLECT_ENUM_MEMBER("odometry", OdomType::Odometry),
+    ERL_REFLECT_ENUM_MEMBER("transform_stamped", OdomType::TransformStamped));
+ERL_PARSE_ENUM(OdomType, 2);
+
+enum class ScanType {
+    Laser = 0,
+    PointCloud = 1,
+    Depth = 2,
+};
+
+ERL_REFLECT_ENUM_SCHEMA(
+    ScanType,
+    3,
+    ERL_REFLECT_ENUM_MEMBER("laser", ScanType::Laser),
+    ERL_REFLECT_ENUM_MEMBER("point_cloud", ScanType::PointCloud),
+    ERL_REFLECT_ENUM_MEMBER("depth", ScanType::Depth));
+ERL_PARSE_ENUM(ScanType, 3);
+
+struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     // setting class for the surface mapping. For example, to use
     // erl::gp_sdf::GpOccSurfaceMapping<float, 2>, you should use its setting class
     // erl::gp_sdf::GpOccSurfaceMapping<float, 2>::Setting.
@@ -46,8 +72,8 @@ struct SdfMappingNodeSetting : Yamlable<SdfMappingNodeSetting> {
     bool use_odom = false;
     // name of the odometry topic
     std::string odom_topic = "/jackal_velocity_controller/odom";
-    // can be "nav_msgs/Odometry" or "geometry_msgs/TransformStamped"
-    std::string odom_msg_type = "nav_msgs::Odometry";
+    // can be "odometry" or "transform_stamped"
+    OdomType odom_msg_type = OdomType::Odometry;
     // size of the odometry queue
     int odom_queue_size = 100;
     // name of the world frame
@@ -56,9 +82,8 @@ struct SdfMappingNodeSetting : Yamlable<SdfMappingNodeSetting> {
     std::string sensor_frame = "front_laser";
     // name of the scan topic
     std::string scan_topic = "/front/scan";
-    // type of the scan: `sensor_msgs::LaserScan`, `sensor_msgs/PointCloud2`, or
-    // `sensor_msgs::Image`.
-    std::string scan_type = "sensor_msgs/LaserScan";
+    // can be "laser", "point_cloud", or "depth"
+    ScanType scan_type = ScanType::Laser;
     // frame class of the scan. e.g. erl::geometry::LidarFrame3D<float>,
     // erl::geometry::DepthFrame3D<float> for 3D scans. For 2D scans, the only option is
     // erl::geometry::LidarFrame2D<float> or erl::geometry::LidarFrame2D<double>.
@@ -75,28 +100,170 @@ struct SdfMappingNodeSetting : Yamlable<SdfMappingNodeSetting> {
     float depth_scale = 0.001f;
     // if true, publish the occupancy tree used by the surface mapping.
     bool publish_tree = false;
-    // name of the topic to publish the occupancy tree
-    std::string publish_tree_topic = "surface_mapping_tree";
     // if true, use binary format to publish the occupancy tree, which makes the message smaller.
     bool publish_tree_binary = true;
     // frequency to publish the occupancy tree
     double publish_tree_frequency = 5.0;
+    // the topic to publish the occupancy tree
+    std::string tree_topic = "surface_mapping_tree";
     // if true, publish the surface points used by the sdf mapping.
     bool publish_surface_points = false;
-    // name of the topic to publish the surface points
-    std::string publish_surface_points_topic = "surface_points";
     // frequency to publish the surface points
     double publish_surface_points_frequency = 5.0;
+    // the topic to publish the surface points
+    std::string surface_points_topic = "surface_points";
+    // the topic to publish the update time
+    std::string update_time_topic = "update_time";
+    // the topic to publish the query time
+    std::string query_time_topic = "query_time";
+    // the service to query the SDF value
+    std::string sdf_query_service = "sdf_query";
+    // the service to save the map
+    std::string save_map_service = "save_map";
+    // the service to load the map
+    std::string load_map_service = "load_map";
+
+    ERL_REFLECT_SCHEMA(
+        SdfMappingNodeConfig,
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, surface_mapping_setting_type),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, surface_mapping_setting_file),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, surface_mapping_type),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, sdf_mapping_setting_file),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, use_odom),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, odom_topic),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, odom_msg_type),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, odom_queue_size),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, world_frame),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, sensor_frame),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, scan_topic),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, scan_type),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, scan_frame_type),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, scan_frame_setting_file),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, scan_stride),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, convert_scan_to_points),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, scan_in_local_frame),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, depth_scale),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_tree),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_tree_binary),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_tree_frequency),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, tree_topic),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_surface_points),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_surface_points_frequency),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, surface_points_topic),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, update_time_topic),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, query_time_topic),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, sdf_query_service),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_map_service),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, load_map_service));
+
+    bool
+    PostDeserialization() override {
+        if (surface_mapping_setting_type.empty()) {
+            ROS_WARN("You must set ~surface_mapping_setting_type");
+            return false;
+        }
+        if (surface_mapping_setting_file.empty()) {
+            ROS_WARN("You must set ~surface_mapping_config");
+            return false;
+        }
+        if (!std::filesystem::exists(surface_mapping_setting_file)) {
+            ROS_WARN(
+                "Surface mapping setting file %s does not exist",
+                surface_mapping_setting_file.c_str());
+            return false;
+        }
+        if (surface_mapping_type.empty()) {
+            ROS_WARN("You must set ~surface_mapping_type");
+            return false;
+        }
+        if (sdf_mapping_setting_file.empty()) {
+            ROS_WARN("You must set ~sdf_mapping_config");
+            return false;
+        }
+        if (!std::filesystem::exists(sdf_mapping_setting_file)) {
+            ROS_WARN(
+                "SDF mapping setting file %s does not exist",
+                sdf_mapping_setting_file.c_str());
+            return false;
+        }
+        if (use_odom && odom_topic.empty()) {
+            ROS_WARN("Odometry topic is empty but use_odom is true");
+            return false;
+        }
+        if (odom_queue_size <= 0) {
+            ROS_WARN("Odometry queue size must be positive");
+            return false;
+        }
+        if (world_frame.empty()) {
+            ROS_WARN("World frame is empty");
+            return false;
+        }
+        if (!use_odom && sensor_frame.empty()) {
+            ROS_WARN("Sensor frame is empty but use_odom is false");
+            return false;
+        }
+        if (scan_topic.empty()) {
+            ROS_WARN("Scan topic is empty");
+            return false;
+        }
+        if (scan_stride <= 0) {
+            ROS_WARN("Scan stride must be positive");
+            return false;
+        }
+        if (convert_scan_to_points) {
+            if (scan_frame_setting_file.empty()) {
+                ROS_WARN("For scan conversion, scan_frame_setting_file must be set.");
+                return false;
+            }
+            if (!std::filesystem::exists(scan_frame_setting_file)) {
+                ROS_WARN(
+                    "Scan frame setting file %s does not exist.",
+                    scan_frame_setting_file.c_str());
+                return false;
+            }
+        }
+        if (publish_tree && tree_topic.empty()) {
+            ROS_WARN("Publish tree topic is empty but publish_tree is true");
+            return false;
+        }
+        if (publish_tree && publish_tree_frequency <= 0.0) {
+            ROS_WARN("Publish tree frequency must be positive");
+            return false;
+        }
+        if (publish_surface_points && surface_points_topic.empty()) {
+            ROS_WARN("Publish surface points topic is empty but publish_surface_points is true");
+            return false;
+        }
+        if (publish_surface_points && publish_surface_points_frequency <= 0.0) {
+            ROS_WARN("Publish surface points frequency must be positive");
+            return false;
+        }
+        if (update_time_topic.empty()) {
+            ROS_WARN("update_time_topic is empty");
+            return false;
+        }
+        if (query_time_topic.empty()) {
+            ROS_WARN("query_time_topic is empty");
+            return false;
+        }
+        if (sdf_query_service.empty()) {
+            ROS_WARN("sdf_query_service is empty");
+            return false;
+        }
+        if (save_map_service.empty()) {
+            ROS_WARN("save_map_service is empty");
+            return false;
+        }
+        if (load_map_service.empty()) {
+            ROS_WARN("load_map_service is empty");
+            return false;
+        }
+        return true;
+    }
 };
 
 template<typename Dtype, int Dim>
 class SdfMappingNode {
-    enum class ScanType {
-        Laser = 0,
-        PointCloud = 1,
-        Depth = 2,
-    };
-
     using AbstractSurfaceMapping = erl::gp_sdf::AbstractSurfaceMapping<Dtype, Dim>;
     using GpSdfMapping = erl::gp_sdf::GpSdfMapping<Dtype, Dim>;
     using GpOccSurfaceMapping = erl::gp_sdf::GpOccSurfaceMapping<Dtype, Dim>;
@@ -107,13 +274,10 @@ class SdfMappingNode {
         erl::geometry::OccupancyOctree<Dtype>>;
     using Rotation = typename GpSdfMapping::Rotation;
     using Translation = typename GpSdfMapping::Translation;
-    using Position = typename GpSdfMapping::Position;
-    using Positions = typename GpSdfMapping::Positions;
-    using Gradient = typename GpSdfMapping::Gradient;
-    using Gradients = typename GpSdfMapping::Gradients;
-    using Distances = typename GpSdfMapping::Distances;
     using Variances = typename GpSdfMapping::Variances;
     using Covariances = typename GpSdfMapping::Covariances;
+    using VectorD = typename GpSdfMapping::VectorD;
+    using MatrixDX = typename GpSdfMapping::MatrixDX;
     using Matrix4 = Eigen::Matrix4<Dtype>;
     using Matrix3 = Eigen::Matrix3<Dtype>;
     using Vector3 = Eigen::Vector3<Dtype>;
@@ -127,11 +291,13 @@ class SdfMappingNode {
     using LidarFrame3D = erl::geometry::LidarFrame3D<Dtype>;
     using DepthFrame3D = erl::geometry::DepthFrame3D<Dtype>;
 
-    SdfMappingNodeSetting m_setting_;
-    ScanType m_scan_type_ = ScanType::Laser;
+    SdfMappingNodeConfig m_setting_;
     ros::NodeHandle m_nh_;
-    ros::Subscriber m_sub_odom_, m_sub_scan_;
-    ros::ServiceServer m_srv_query_sdf_, m_srv_save_map_;
+    ros::Subscriber m_sub_odom_;
+    ros::Subscriber m_sub_scan_;
+    ros::ServiceServer m_srv_query_sdf_;
+    ros::ServiceServer m_srv_load_map_;
+    ros::ServiceServer m_srv_save_map_;
     ros::Publisher m_pub_tree_;
     ros::Publisher m_pub_surface_points_;
     ros::Publisher m_pub_update_time_;
@@ -140,8 +306,8 @@ class SdfMappingNode {
     ros::Timer m_pub_surface_points_timer_;
     erl_geometry_msgs::OccupancyTreeMsg m_msg_tree_;
     sensor_msgs::PointCloud2 m_msg_surface_points_;
-    sensor_msgs::Temperature m_msg_update_time_;
-    sensor_msgs::Temperature m_msg_query_time_;
+    std_msgs::Float64 m_msg_update_time_;
+    std_msgs::Float64 m_msg_query_time_;
 
     std::shared_ptr<YamlableBase> m_surface_mapping_cfg_ = nullptr;
     std::shared_ptr<AbstractSurfaceMapping> m_surface_mapping_ = nullptr;
@@ -167,14 +333,16 @@ class SdfMappingNode {
     std::shared_ptr<RangeSensorFrame3D> m_scan_frame_3d_ = nullptr;
 
 public:
-    SdfMappingNode(ros::NodeHandle& nh)
+    SdfMappingNode(ros::NodeHandle &nh)
         : m_nh_(nh) {
         if (!LoadParameters()) {
             ROS_FATAL("Failed to load parameters");
             ros::shutdown();
             return;
         }
-        auto& setting_factory = YamlableBase::Factory::GetInstance();
+
+        auto &setting_factory = YamlableBase::Factory::GetInstance();
+
         // load the surface mapping config
         m_surface_mapping_cfg_ = setting_factory.Create(m_setting_.surface_mapping_setting_type);
         if (!m_surface_mapping_cfg_) {
@@ -191,7 +359,7 @@ public:
                 ros::shutdown();
                 return;
             }
-        } catch (const std::exception& e) {
+        } catch (const std::exception &e) {
             ROS_FATAL(
                 "Failed to parse %s with surface mapping type %s: %s",
                 m_setting_.surface_mapping_setting_file.c_str(),
@@ -200,6 +368,7 @@ public:
             ros::shutdown();
             return;
         }
+
         // load the sdf mapping config
         m_sdf_mapping_cfg_ = std::make_shared<typename GpSdfMapping::Setting>();
         try {
@@ -208,7 +377,7 @@ public:
                 ros::shutdown();
                 return;
             }
-        } catch (const std::exception& e) {
+        } catch (const std::exception &e) {
             ROS_FATAL(
                 "Failed to parse %s: %s",
                 m_setting_.sdf_mapping_setting_file.c_str(),
@@ -216,6 +385,7 @@ public:
             ros::shutdown();
             return;
         }
+
         // create the surface mapping
         m_surface_mapping_ =
             AbstractSurfaceMapping::Create(m_setting_.surface_mapping_type, m_surface_mapping_cfg_);
@@ -225,27 +395,38 @@ public:
         ROS_INFO("SDF mapping config:\n%s", m_sdf_mapping_cfg_->AsYamlString().c_str());
 
         if (m_setting_.use_odom) {
-            if (m_setting_.odom_msg_type == "nav_msgs/Odometry") {
-                m_sub_odom_ = m_nh_.subscribe(
-                    m_setting_.odom_topic,
-                    1,
-                    &SdfMappingNode::CallbackOdomOdometry,
-                    this);
-            } else if (m_setting_.odom_msg_type == "geometry_msgs/TransformStamped") {
-                m_sub_odom_ = m_nh_.subscribe(
-                    m_setting_.odom_topic,
-                    1,
-                    &SdfMappingNode::CallbackOdomTransformStamped,
-                    this);
-            } else {
-                ROS_FATAL("Invalid odometry message type: %s", m_setting_.odom_msg_type.c_str());
-                ros::shutdown();
-                return;
+            switch (m_setting_.odom_msg_type) {
+                case OdomType::Odometry:
+                    ROS_INFO(
+                        "Subscribing to %s as nav_msgs/Odometry",
+                        m_setting_.odom_topic.c_str());
+                    m_sub_odom_ = m_nh_.subscribe(
+                        m_setting_.odom_topic,
+                        1,
+                        &SdfMappingNode::CallbackOdomOdometry,
+                        this);
+                    break;
+                case OdomType::TransformStamped:
+                    ROS_INFO(
+                        "Subscribing to %s as geometry_msgs/TransformStamped",
+                        m_setting_.odom_topic.c_str());
+                    m_sub_odom_ = m_nh_.subscribe(
+                        m_setting_.odom_topic,
+                        1,
+                        &SdfMappingNode::CallbackOdomTransformStamped,
+                        this);
+                    break;
+                default:
+                    ROS_FATAL(
+                        "Invalid odometry message type: %d",
+                        static_cast<int>(m_setting_.odom_msg_type));
+                    ros::shutdown();
+                    return;
             }
             m_odom_queue_.reserve(m_setting_.odom_queue_size);
         }
-        // TODO: support setting queue size
-        switch (m_scan_type_) {
+
+        switch (m_setting_.scan_type) {
             case ScanType::Laser:
                 ROS_INFO("Subscribing to %s as laser scan", m_setting_.scan_topic.c_str());
                 m_sub_scan_ = m_nh_.subscribe(
@@ -284,7 +465,7 @@ public:
                         ros::shutdown();
                         return;
                     }
-                } catch (const std::exception& e) {
+                } catch (const std::exception &e) {
                     ROS_FATAL(
                         "Failed to parse %s with frame type %s: %s",
                         m_setting_.scan_frame_setting_file.c_str(),
@@ -312,7 +493,7 @@ public:
                         ros::shutdown();
                         return;
                     }
-                } catch (const std::exception& e) {
+                } catch (const std::exception &e) {
                     ROS_FATAL(
                         "Failed to parse %s with frame type %s: %s",
                         m_setting_.scan_frame_setting_file.c_str(),
@@ -340,7 +521,7 @@ public:
                         ros::shutdown();
                         return;
                     }
-                } catch (const std::exception& e) {
+                } catch (const std::exception &e) {
                     ROS_FATAL(
                         "Failed to parse %s with frame type %s: %s",
                         m_setting_.scan_frame_setting_file.c_str(),
@@ -365,10 +546,18 @@ public:
         }
 
         // advertise the service to query the SDF mapping
-        m_srv_query_sdf_ =
-            m_nh_.advertiseService("sdf_query", &SdfMappingNode::CallbackSdfQuery, this);
-        m_srv_save_map_ =
-            m_nh_.advertiseService("save_map", &SdfMappingNode::CallbackSaveMap, this);
+        m_srv_query_sdf_ = m_nh_.advertiseService(
+            m_setting_.sdf_query_service,
+            &SdfMappingNode::CallbackSdfQuery,
+            this);
+        m_srv_load_map_ = m_nh_.advertiseService(
+            m_setting_.load_map_service,
+            &SdfMappingNode::CallbackLoadMap,
+            this);
+        m_srv_save_map_ = m_nh_.advertiseService(
+            m_setting_.save_map_service,
+            &SdfMappingNode::CallbackSaveMap,
+            this);
 
         // publish the occupancy tree used by the surface mapping
         if (m_setting_.publish_tree) {
@@ -378,7 +567,7 @@ public:
                 return;
             }
             m_pub_tree_ = m_nh_.advertise<erl_geometry_msgs::OccupancyTreeMsg>(
-                m_setting_.publish_tree_topic,
+                m_setting_.tree_topic,
                 1,
                 true);
             m_pub_tree_timer_ = m_nh_.createTimer(
@@ -391,10 +580,8 @@ public:
 
         // publish the surface points used by the sdf mapping
         if (m_setting_.publish_surface_points) {
-            m_pub_surface_points_ = m_nh_.advertise<sensor_msgs::PointCloud2>(
-                m_setting_.publish_surface_points_topic,
-                1,
-                true);
+            m_pub_surface_points_ =
+                m_nh_.advertise<sensor_msgs::PointCloud2>(m_setting_.surface_points_topic, 1, true);
             m_pub_surface_points_timer_ = m_nh_.createTimer(
                 ros::Duration(1.0 / m_setting_.publish_surface_points_frequency),
                 &SdfMappingNode::CallbackPublishSurfacePoints,
@@ -402,7 +589,7 @@ public:
             m_msg_surface_points_.header.frame_id = m_setting_.world_frame;
             m_msg_surface_points_.header.seq = -1;
             m_msg_surface_points_.fields.resize(8);
-            static const char* kSurfacePointsFieldNames[] = {
+            static const char *kSurfacePointsFieldNames[] = {
                 "x",
                 "y",
                 "z",
@@ -423,156 +610,22 @@ public:
             m_msg_surface_points_.height = 1;            // unorganized point cloud
         }
 
-        m_pub_update_time_ = m_nh_.advertise<sensor_msgs::Temperature>("update_time", 1, true);
-        m_pub_query_time_ = m_nh_.advertise<sensor_msgs::Temperature>("query_time", 1, true);
-        m_msg_update_time_.header.frame_id = m_setting_.world_frame;
-        m_msg_update_time_.header.seq = -1;
-        m_msg_update_time_.temperature = 0.0;
-        m_msg_update_time_.variance = 0.0;
-        m_msg_query_time_.header.frame_id = m_setting_.world_frame;
-        m_msg_query_time_.header.seq = -1;
-        m_msg_query_time_.temperature = 0.0;
-        m_msg_query_time_.variance = 0.0;
+        m_pub_update_time_ =
+            m_nh_.advertise<std_msgs::Float64>(m_setting_.update_time_topic, 1, true);
+        m_pub_query_time_ =
+            m_nh_.advertise<std_msgs::Float64>(m_setting_.query_time_topic, 1, true);
+        m_msg_update_time_.data = 0.0;
+        m_msg_query_time_.data = 0.0;
 
-        ROS_INFO("SdfMappingNode ready. Waiting for scans + queries...");
+        ROS_INFO("SdfMappingNode is ready. Waiting for scans + queries...");
     }
 
 private:
-    template<typename T>
-    bool
-    LoadParam(const std::string& param_name, T& param) {
-        if (!m_nh_.hasParam(param_name)) { return true; }
-        if (!m_nh_.getParam(param_name, param)) {
-            ROS_WARN("Failed to load param %s", param_name.c_str());
-            return false;
-        }
-        return true;
-    }
-
     bool
     LoadParameters() {
-        std::string setting_file;
-        m_nh_.param<std::string>("setting_file", setting_file, "");
-        try {
-            if (!setting_file.empty()) {  // load the setting from the file first
-                if (!m_setting_.FromYamlFile(setting_file)) {
-                    ROS_FATAL("Failed to load %s", setting_file.c_str());
-                    return false;
-                }
-            }
-        } catch (const std::exception& e) {
-            ROS_FATAL("Failed to parse %s: %s", setting_file.c_str(), e.what());
-            return false;
-        }
-        // load the parameters from the node handle
-        if (!LoadParam("surface_mapping_setting_type", m_setting_.surface_mapping_setting_type)) {
-            return false;
-        }
-        if (!LoadParam("surface_mapping_setting_file", m_setting_.surface_mapping_setting_file)) {
-            return false;
-        }
-        if (!LoadParam("surface_mapping_type", m_setting_.surface_mapping_type)) { return false; }
-        if (!LoadParam("sdf_mapping_setting_file", m_setting_.sdf_mapping_setting_file)) {
-            return false;
-        }
-        if (!LoadParam("use_odom", m_setting_.use_odom)) { return false; }
-        if (!LoadParam("odom_topic", m_setting_.odom_topic)) { return false; }
-        if (!LoadParam("odom_msg_type", m_setting_.odom_msg_type)) { return false; }
-        if (!LoadParam("odom_queue_size", m_setting_.odom_queue_size)) { return false; }
-        if (!LoadParam("world_frame", m_setting_.world_frame)) { return false; }
-        if (!LoadParam("sensor_frame", m_setting_.sensor_frame)) { return false; }
-        if (!LoadParam("scan_topic", m_setting_.scan_topic)) { return false; }
-        if (!LoadParam("scan_type", m_setting_.scan_type)) { return false; }
-        if (!LoadParam("scan_frame_type", m_setting_.scan_frame_type)) { return false; }
-        if (!LoadParam("scan_frame_setting_file", m_setting_.scan_frame_setting_file)) {
-            return false;
-        }
-        if (!LoadParam("scan_stride", m_setting_.scan_stride)) { return false; }
-        if (!LoadParam("convert_scan_to_points", m_setting_.convert_scan_to_points)) {
-            return false;
-        }
-        if (!LoadParam("scan_in_local_frame", m_setting_.scan_in_local_frame)) { return false; }
-        if (!LoadParam("depth_scale", m_setting_.depth_scale)) { return false; }
-        if (!LoadParam("publish_tree", m_setting_.publish_tree)) { return false; }
-        if (!LoadParam("publish_tree_topic", m_setting_.publish_tree_topic)) { return false; }
-        if (!LoadParam("publish_tree_binary", m_setting_.publish_tree_binary)) { return false; }
-        if (!LoadParam("publish_tree_frequency", m_setting_.publish_tree_frequency)) {
-            return false;
-        }
-        if (!LoadParam("publish_surface_points", m_setting_.publish_surface_points)) {
-            return false;
-        }
-        if (!LoadParam("publish_surface_points_topic", m_setting_.publish_surface_points_topic)) {
-            return false;
-        }
-        if (!LoadParam(
-                "publish_surface_points_frequency",
-                m_setting_.publish_surface_points_frequency)) {
-            return false;
-        }
-        // check the parameters
-        if (m_setting_.surface_mapping_setting_type.empty()) {
-            ROS_WARN("You must set ~surface_mapping_setting_type");
-            return false;
-        }
-        if (m_setting_.surface_mapping_setting_file.empty()) {
-            ROS_WARN("You must set ~surface_mapping_config");
-            return false;
-        }
-        if (!std::filesystem::exists(m_setting_.surface_mapping_setting_file)) {
-            ROS_WARN(
-                "Surface mapping setting file %s does not exist",
-                m_setting_.surface_mapping_setting_file.c_str());
-            return false;
-        }
-        if (m_setting_.surface_mapping_type.empty()) {
-            ROS_WARN("You must set ~surface_mapping_type");
-            return false;
-        }
-        if (m_setting_.sdf_mapping_setting_file.empty()) {
-            ROS_WARN("You must set ~sdf_mapping_config");
-            return false;
-        }
-        if (!std::filesystem::exists(m_setting_.sdf_mapping_setting_file)) {
-            ROS_WARN(
-                "SDF mapping setting file %s does not exist",
-                m_setting_.sdf_mapping_setting_file.c_str());
-            return false;
-        }
-        if (m_setting_.use_odom && m_setting_.odom_topic.empty()) {
-            ROS_WARN("Odometry topic is empty but use_odom is true");
-            return false;
-        }
-        if (m_setting_.odom_queue_size <= 0) {
-            ROS_WARN("Odometry queue size must be positive");
-            return false;
-        }
-        if (m_setting_.world_frame.empty()) {
-            ROS_WARN("World frame is empty");
-            return false;
-        }
-        if (!m_setting_.use_odom && m_setting_.sensor_frame.empty()) {
-            ROS_WARN("Sensor frame is empty but use_odom is false");
-            return false;
-        }
-        if (m_setting_.scan_topic.empty()) {
-            ROS_WARN("Scan topic is empty");
-            return false;
-        }
-        if (m_setting_.scan_type == "sensor_msgs/LaserScan") {
-            m_scan_type_ = ScanType::Laser;
-        } else if (m_setting_.scan_type == "sensor_msgs/PointCloud2") {
-            m_scan_type_ = ScanType::PointCloud;
-        } else if (m_setting_.scan_type == "sensor_msgs/Image") {
-            m_scan_type_ = ScanType::Depth;
-        } else {
-            ROS_WARN("Unknown scan type %s", m_setting_.scan_type.c_str());
-            return false;
-        }
-        if (m_setting_.scan_stride <= 0) {
-            ROS_WARN("Scan stride must be positive");
-            return false;
-        }
+        if (!m_setting_.LoadFromRos1(m_nh_, "")) { return false; }
+
+        // more checks
         if (m_setting_.convert_scan_to_points) {
             if (Dim == 2) {
                 ROS_WARN_COND(
@@ -591,33 +644,6 @@ private:
                     return false;
                 }
             }
-            if (m_setting_.scan_frame_setting_file.empty()) {
-                ROS_WARN("For scan conversion, scan_frame_setting_file must be set.");
-                return false;
-            }
-            if (!std::filesystem::exists(m_setting_.scan_frame_setting_file)) {
-                ROS_WARN(
-                    "Scan frame setting file %s does not exist.",
-                    m_setting_.scan_frame_setting_file.c_str());
-                return false;
-            }
-        }
-        if (m_setting_.publish_tree && m_setting_.publish_tree_topic.empty()) {
-            ROS_WARN("Publish tree topic is empty but publish_tree is true");
-            return false;
-        }
-        if (m_setting_.publish_tree && m_setting_.publish_tree_frequency <= 0.0) {
-            ROS_WARN("Publish tree frequency must be positive");
-            return false;
-        }
-        if (m_setting_.publish_surface_points && m_setting_.publish_surface_points_topic.empty()) {
-            ROS_WARN("Publish surface points topic is empty but publish_surface_points is true");
-            return false;
-        }
-        if (m_setting_.publish_surface_points &&
-            m_setting_.publish_surface_points_frequency <= 0.0) {
-            ROS_WARN("Publish surface points frequency must be positive");
-            return false;
         }
         return true;
     }
@@ -647,19 +673,19 @@ private:
 
     // get the pose for time t
     std::tuple<bool, Rotation, Translation>
-    GetSensorPose(const ros::Time& time) {
+    GetSensorPose(const ros::Time &time) {
         if (m_setting_.use_odom) {
             geometry_msgs::TransformStamped transform;
 
             {
                 std::lock_guard<std::mutex> lock(m_odom_queue_lock_);
                 // get the latest odometry message
-                const int& head = m_odom_queue_head_;
+                const int &head = m_odom_queue_head_;
                 if (head < 0) {
                     ROS_WARN("No odometry message available");
                     return {false, {}, {}};
                 }
-                geometry_msgs::TransformStamped* transform_ptr = nullptr;
+                geometry_msgs::TransformStamped *transform_ptr = nullptr;
                 for (int i = head; i >= 0; --i) {
                     if (m_odom_queue_[i].header.stamp <= time) {
                         transform_ptr = &m_odom_queue_[i];
@@ -690,7 +716,7 @@ private:
                         m_setting_.sensor_frame,
                         transform.header.stamp,
                         ros::Duration(0.5));
-                } catch (tf2::LookupException& ex) {
+                } catch (tf2::LookupException &ex) {
                     ROS_WARN(
                         "Failed to lookup transform from %s to %s: %s",
                         transform.child_frame_id.c_str(),
@@ -701,7 +727,7 @@ private:
                 tf2::doTransform(tf_child_to_sensor, transform, transform);
             }
 
-            auto& pose = transform.transform;
+            auto &pose = transform.transform;
             // erase the dimension of rotation and translation temporarily
             MatrixX rotation;
             VectorX translation;
@@ -729,7 +755,7 @@ private:
                 m_setting_.sensor_frame,
                 time,
                 ros::Duration(5.0));
-        } catch (tf2::TransformException& ex) {
+        } catch (tf2::TransformException &ex) {
             ROS_WARN(ex.what());
             return {false, {}, {}};  // no valid transform
         }
@@ -748,10 +774,10 @@ private:
 
     // --- callbacks to collect pose+scan and then update the map ---
     void
-    CallbackOdomOdometry(const nav_msgs::Odometry::ConstPtr& msg) {
+    CallbackOdomOdometry(const nav_msgs::Odometry::ConstPtr &msg) {
         std::lock_guard<std::mutex> lock(m_odom_queue_lock_);
         if (static_cast<int>(m_odom_queue_.size()) >= m_setting_.odom_queue_size) {
-            auto& transform = m_odom_queue_[m_odom_queue_head_];
+            auto &transform = m_odom_queue_[m_odom_queue_head_];
             transform.header = msg->header;
             transform.child_frame_id = msg->child_frame_id;
             transform.transform.rotation = msg->pose.pose.orientation;
@@ -773,10 +799,10 @@ private:
     }
 
     void
-    CallbackOdomTransformStamped(const geometry_msgs::TransformStamped::ConstPtr& msg) {
+    CallbackOdomTransformStamped(const geometry_msgs::TransformStamped::ConstPtr &msg) {
         std::lock_guard<std::mutex> lock(m_odom_queue_lock_);
         if (static_cast<int>(m_odom_queue_.size()) >= m_setting_.odom_queue_size) {
-            auto& transform = m_odom_queue_[m_odom_queue_head_];
+            auto &transform = m_odom_queue_[m_odom_queue_head_];
             transform.header = msg->header;
             transform.child_frame_id = msg->child_frame_id;
             transform.transform = msg->transform;
@@ -788,30 +814,30 @@ private:
     }
 
     void
-    CallbackLaserScan(const sensor_msgs::LaserScan::ConstPtr& msg) {
+    CallbackLaserScan(const sensor_msgs::LaserScan::ConstPtr &msg) {
         m_lidar_scan_2d_ = msg;
         TryUpdate(msg->header.stamp);
     }
 
     void
-    CallbackPointCloud2(const sensor_msgs::PointCloud2::ConstPtr& msg) {
+    CallbackPointCloud2(const sensor_msgs::PointCloud2::ConstPtr &msg) {
         m_lidar_scan_3d_ = msg;
         TryUpdate(msg->header.stamp);
     }
 
     void
-    CallbackDepthImage(const sensor_msgs::Image::ConstPtr& msg) {
+    CallbackDepthImage(const sensor_msgs::Image::ConstPtr &msg) {
         m_depth_image_ = msg;
         TryUpdate(msg->header.stamp);
     }
 
     bool
-    GetScanFromLaserScan(MatrixX& scan) {
+    GetScanFromLaserScan(MatrixX &scan) {
         if (!m_lidar_scan_2d_) {
             ROS_WARN("No laser scan data available");
             return false;
         }
-        auto& scan_msg = *m_lidar_scan_2d_;
+        auto &scan_msg = *m_lidar_scan_2d_;
         if (scan_msg.ranges.empty()) {
             ROS_WARN("Laser scan data is empty");
             m_lidar_scan_2d_.reset();
@@ -822,17 +848,20 @@ private:
         if (m_setting_.scan_stride > 1) {
             scan = DownsampleEigenMatrix(scan, m_setting_.scan_stride, 1);
         }
+        for (long i = 0; i < scan.size(); ++i) {
+            if (!std::isfinite(scan(i, 0))) { scan(i, 0) = 0.0; }  // invalid range
+        }
         m_lidar_scan_2d_.reset();
         return true;
     }
 
     bool
-    GetScanFromPointCloud2(MatrixX& scan) {
+    GetScanFromPointCloud2(MatrixX &scan) {
         if (!m_lidar_scan_3d_) {
             ROS_WARN("No point cloud data available");
             return false;
         }
-        auto& cloud = *m_lidar_scan_3d_;
+        auto &cloud = *m_lidar_scan_3d_;
         if (cloud.fields.empty() || cloud.data.empty()) {
             ROS_WARN("Point cloud data is empty");
             m_lidar_scan_3d_.reset();
@@ -859,9 +888,9 @@ private:
             return false;
         }
         // validate x, y, z fields have the same data type
-        const uint8_t& xtype = cloud.fields[xi].datatype;
-        const uint8_t& ytype = cloud.fields[yi].datatype;
-        const uint8_t& ztype = cloud.fields[zi].datatype;
+        const uint8_t &xtype = cloud.fields[xi].datatype;
+        const uint8_t &ytype = cloud.fields[yi].datatype;
+        const uint8_t &ztype = cloud.fields[zi].datatype;
         if (xtype != ytype || xtype != ztype || ytype != ztype) {
             ROS_WARN("Point cloud x, y, z fields have different data types");
             m_lidar_scan_3d_.reset();
@@ -885,12 +914,12 @@ private:
         long point_count = 0;
         if (xtype == sensor_msgs::PointField::FLOAT32) {
             for (int h = 0; h < height; ++h) {
-                const uint8_t* ptr = cloud.data.data() + h * row_step;
+                const uint8_t *ptr = cloud.data.data() + h * row_step;
                 for (int w = 0; w < width; ++w) {
-                    Dtype* p_out = scan.col(point_count).data();
-                    p_out[0] = static_cast<Dtype>(*reinterpret_cast<const float*>(ptr + xoff));
-                    p_out[1] = static_cast<Dtype>(*reinterpret_cast<const float*>(ptr + yoff));
-                    p_out[2] = static_cast<Dtype>(*reinterpret_cast<const float*>(ptr + zoff));
+                    Dtype *p_out = scan.col(point_count).data();
+                    p_out[0] = static_cast<Dtype>(*reinterpret_cast<const float *>(ptr + xoff));
+                    p_out[1] = static_cast<Dtype>(*reinterpret_cast<const float *>(ptr + yoff));
+                    p_out[2] = static_cast<Dtype>(*reinterpret_cast<const float *>(ptr + zoff));
                     if (std::isfinite(p_out[0]) && std::isfinite(p_out[1]) &&
                         std::isfinite(p_out[2])) {
                         ++point_count;
@@ -900,12 +929,12 @@ private:
             }
         } else if (xtype == sensor_msgs::PointField::FLOAT64) {
             for (int h = 0; h < height; ++h) {
-                const uint8_t* ptr = cloud.data.data() + h * row_step;
+                const uint8_t *ptr = cloud.data.data() + h * row_step;
                 for (int w = 0; w < width; ++w) {
-                    Dtype* p_out = scan.col(point_count).data();
-                    p_out[0] = static_cast<Dtype>(*reinterpret_cast<const double*>(ptr + xoff));
-                    p_out[1] = static_cast<Dtype>(*reinterpret_cast<const double*>(ptr + yoff));
-                    p_out[2] = static_cast<Dtype>(*reinterpret_cast<const double*>(ptr + zoff));
+                    Dtype *p_out = scan.col(point_count).data();
+                    p_out[0] = static_cast<Dtype>(*reinterpret_cast<const double *>(ptr + xoff));
+                    p_out[1] = static_cast<Dtype>(*reinterpret_cast<const double *>(ptr + yoff));
+                    p_out[2] = static_cast<Dtype>(*reinterpret_cast<const double *>(ptr + zoff));
                     if (std::isfinite(p_out[0]) && std::isfinite(p_out[1]) &&
                         std::isfinite(p_out[2])) {
                         ++point_count;
@@ -929,7 +958,7 @@ private:
     }
 
     bool
-    GetScanFromDepthImage(MatrixX& scan) {
+    GetScanFromDepthImage(MatrixX &scan) {
         if (!m_depth_image_) {
             ROS_WARN("No depth image available");
             return false;
@@ -938,14 +967,14 @@ private:
         // row-major to column-major conversion
         if (m_depth_image_->encoding == TYPE_32FC1) {
             MatrixX depth_image = Eigen::Map<const Eigen::MatrixXf>(
-                                      reinterpret_cast<const float*>(m_depth_image_->data.data()),
+                                      reinterpret_cast<const float *>(m_depth_image_->data.data()),
                                       m_depth_image_->width,
                                       m_depth_image_->height)
                                       .cast<Dtype>();
             scan = depth_image.transpose();
         } else if (m_depth_image_->encoding == TYPE_64FC1) {
             MatrixX depth_image = Eigen::Map<const Eigen::MatrixXd>(
-                                      reinterpret_cast<const double*>(m_depth_image_->data.data()),
+                                      reinterpret_cast<const double *>(m_depth_image_->data.data()),
                                       m_depth_image_->width,
                                       m_depth_image_->height)
                                       .cast<Dtype>();
@@ -953,13 +982,13 @@ private:
         } else if (m_depth_image_->encoding == TYPE_16UC1) {
             MatrixX depth_image =
                 Eigen::Map<const Eigen::MatrixX<uint16_t>>(
-                    reinterpret_cast<const uint16_t*>(m_depth_image_->data.data()),
+                    reinterpret_cast<const uint16_t *>(m_depth_image_->data.data()),
                     m_depth_image_->width,
                     m_depth_image_->height)
                     .cast<Dtype>();
             scan = depth_image.transpose();
         } else {
-            ROS_WARN("Unsupported depth image encoding %s", m_depth_image_->encoding.c_str());
+            ROS_WARN("Unsupported depth encoding %s", m_depth_image_->encoding.c_str());
             m_depth_image_.reset();
             return false;
         }
@@ -968,7 +997,7 @@ private:
                 scan = DownsampleEigenMatrix(scan, m_setting_.scan_stride, m_setting_.scan_stride);
             }
             long cnt_valid = 0;
-            Dtype* ptr = scan.data();
+            Dtype *ptr = scan.data();
             for (long i = 0; i < scan.size(); ++i) {
                 if (std::isfinite(ptr[i]) && ptr[i] > 0) {
                     ++cnt_valid;
@@ -988,7 +1017,7 @@ private:
     }
 
     void
-    TryUpdate(const ros::Time& time) {
+    TryUpdate(const ros::Time &time) {
         if (!m_lidar_scan_2d_ && !m_lidar_scan_3d_ && !m_depth_image_) {
             ROS_WARN("No scan data available");
             return;
@@ -1001,7 +1030,7 @@ private:
 
         bool are_points = false;
         MatrixX scan;
-        switch (m_scan_type_) {
+        switch (m_setting_.scan_type) {
             case ScanType::Laser:
                 if (!GetScanFromLaserScan(scan)) { return; }
                 are_points = false;
@@ -1018,7 +1047,7 @@ private:
         const bool in_local = m_setting_.scan_in_local_frame;
         if (!are_points && m_setting_.convert_scan_to_points) {
             if (Dim == 2) {
-                const std::vector<Vector2>& ray_directions =
+                const std::vector<Vector2> &ray_directions =
                     m_scan_frame_2d_->GetRayDirectionsInFrame();
                 MatrixX scan_points(2, scan.size());
                 if (in_local) {  // convert to points in local frame
@@ -1064,19 +1093,17 @@ private:
         }
         // bool success = m_sdf_mapping_->Update(rotation, translation, scan, are_points, in_local);
         auto t2 = ros::WallTime::now();
-        m_msg_update_time_.header.stamp = time;
-        m_msg_update_time_.header.seq++;
-        m_msg_update_time_.temperature = (t2 - t1).toSec();
+        m_msg_update_time_.data = (t2 - t1).toSec();
         m_pub_update_time_.publish(m_msg_update_time_);
-        ROS_INFO("Update fps: %f", 1.0 / m_msg_update_time_.temperature);
+        ROS_INFO("Update fps: %f", 1.0 / m_msg_update_time_.data);
         if (!success) { ROS_WARN("Failed to update SDF mapping"); }
     }
 
     // --- service handler: runs Test() on the current map ---
     bool
     CallbackSdfQuery(
-        erl_gp_sdf_msgs::SdfQuery::Request& req,
-        erl_gp_sdf_msgs::SdfQuery::Response& res) {
+        erl_gp_sdf_msgs::SdfQuery::Request &req,
+        erl_gp_sdf_msgs::SdfQuery::Response &res) {
 
         if (!m_sdf_mapping_) {
             ROS_WARN("SDF mapping is not initialized");
@@ -1087,12 +1114,12 @@ private:
 
         const auto n = static_cast<int>(req.query_points.size());
         Eigen::Map<const Eigen::MatrixXd> positions_org(
-            reinterpret_cast<const double*>(req.query_points.data()),
+            reinterpret_cast<const double *>(req.query_points.data()),
             3,
             n);
-        Positions positions = positions_org.topRows<Dim>().template cast<Dtype>();
-        Distances distances(n);
-        Gradients gradients(Dim, n);
+        MatrixDX positions = positions_org.topRows<Dim>().template cast<Dtype>();
+        VectorX distances(n);
+        MatrixDX gradients(Dim, n);
         Variances variances(Dim + 1, n);
         Covariances covariances(Dim * (Dim + 1) / 2, n);
         distances.setConstant(0.0);
@@ -1102,24 +1129,24 @@ private:
         auto t1 = ros::WallTime::now();
         bool ok = m_sdf_mapping_->Test(positions, distances, gradients, variances, covariances);
         auto t2 = ros::WallTime::now();
-        m_msg_query_time_.header.stamp = ros::Time::now();
-        m_msg_query_time_.header.seq++;
-        m_msg_query_time_.temperature = (t2 - t1).toSec();
+        m_msg_query_time_.data = (t2 - t1).toSec();
+        ROS_INFO("SDF query took %f seconds", m_msg_query_time_.data);
         m_pub_query_time_.publish(m_msg_query_time_);
         res.success = ok;
-        if (!ok) { return false; }
-
-        // TODO: CHECK ALL std::memcpy() CALLS FOR CORRECTNESS
+        if (!ok) {
+            ROS_WARN("Failed to process SDF query");
+            return false;
+        }
 
         // convert to double for the response
         Eigen::VectorXd distances_d;
         Eigen::MatrixXd gradients_d;
         Eigen::MatrixXd variances_d;
         Eigen::MatrixXd covariances_d;
-        const double* distances_ptr = nullptr;
-        const double* gradients_ptr = nullptr;
-        const double* variances_ptr = nullptr;
-        const double* covariances_ptr = nullptr;
+        const double *distances_ptr = nullptr;
+        const double *gradients_ptr = nullptr;
+        const double *variances_ptr = nullptr;
+        const double *covariances_ptr = nullptr;
         if (std::is_same_v<Dtype, float>) {
             distances_d = distances.template cast<double>();
             gradients_d = gradients.template cast<double>();
@@ -1130,10 +1157,10 @@ private:
             variances_ptr = variances_d.data();
             covariances_ptr = covariances_d.data();
         } else {
-            distances_ptr = reinterpret_cast<const double*>(distances.data());
-            gradients_ptr = reinterpret_cast<const double*>(gradients.data());
-            variances_ptr = reinterpret_cast<const double*>(variances.data());
-            covariances_ptr = reinterpret_cast<const double*>(covariances.data());
+            distances_ptr = reinterpret_cast<const double *>(distances.data());
+            gradients_ptr = reinterpret_cast<const double *>(gradients.data());
+            variances_ptr = reinterpret_cast<const double *>(variances.data());
+            covariances_ptr = reinterpret_cast<const double *>(covariances.data());
         }
 
         // store the results in the response
@@ -1141,11 +1168,11 @@ private:
         /// SDF
         res.signed_distances.resize(n);
         std::memcpy(
-            reinterpret_cast<char*>(res.signed_distances.data()),
-            reinterpret_cast<const char*>(distances_ptr),
+            reinterpret_cast<char *>(res.signed_distances.data()),
+            reinterpret_cast<const char *>(distances_ptr),
             n * sizeof(double));
         /// store the remaining results based on the query setting
-        const QuerySetting& query_setting = m_sdf_mapping_cfg_->test_query;
+        const QuerySetting &query_setting = m_sdf_mapping_cfg_->test_query;
         res.compute_gradient = query_setting.compute_gradient;
         res.compute_gradient_variance = query_setting.compute_gradient_variance;
         res.compute_covariance = query_setting.compute_covariance;
@@ -1161,8 +1188,8 @@ private:
                 }
             } else {
                 std::memcpy(
-                    reinterpret_cast<char*>(res.gradients.data()),
-                    reinterpret_cast<const char*>(gradients_ptr),
+                    reinterpret_cast<char *>(res.gradients.data()),
+                    reinterpret_cast<const char *>(gradients_ptr),
                     3 * n * sizeof(double));
             }
         }
@@ -1170,8 +1197,8 @@ private:
         if (query_setting.compute_gradient_variance) {
             res.variances.resize(n * (Dim + 1));
             std::memcpy(
-                reinterpret_cast<char*>(res.variances.data()),
-                reinterpret_cast<const char*>(variances_ptr),
+                reinterpret_cast<char *>(res.variances.data()),
+                reinterpret_cast<const char *>(variances_ptr),
                 n * (Dim + 1) * sizeof(double));
         } else {
             res.variances.resize(n);
@@ -1182,17 +1209,47 @@ private:
         if (query_setting.compute_covariance) {
             res.covariances.resize(n * Dim * (Dim + 1) / 2);
             std::memcpy(
-                reinterpret_cast<char*>(res.covariances.data()),
-                reinterpret_cast<const char*>(covariances_ptr),
+                reinterpret_cast<char *>(res.covariances.data()),
+                reinterpret_cast<const char *>(covariances_ptr),
                 n * Dim * (Dim + 1) / 2 * sizeof(double));
         }
         return true;
     }
 
     bool
+    CallbackLoadMap(
+        erl_gp_sdf_msgs::SaveMap::Request &req,
+        erl_gp_sdf_msgs::SaveMap::Response &res) {
+
+        if (!m_sdf_mapping_) {
+            ROS_WARN("SDF mapping is not initialized");
+            res.success = false;
+            return false;
+        }
+        if (req.name.empty()) {
+            ROS_WARN("Map file name is empty");
+            res.success = false;
+            return false;
+        }
+        std::filesystem::path map_file = req.name;
+        map_file = std::filesystem::absolute(map_file);
+        if (!std::filesystem::exists(map_file)) {
+            ROS_WARN("Map file %s does not exist", map_file.string().c_str());
+            res.success = false;
+            return false;
+        }
+        {
+            auto lock = m_sdf_mapping_->GetLockGuard();
+            using Serializer = serialization::Serialization<GpSdfMapping>;
+            res.success = Serializer::Read(map_file, m_sdf_mapping_.get());
+        }
+        return true;
+    }
+
+    bool
     CallbackSaveMap(
-        erl_gp_sdf_msgs::SaveMap::Request& req,
-        erl_gp_sdf_msgs::SaveMap::Response& res) {
+        erl_gp_sdf_msgs::SaveMap::Request &req,
+        erl_gp_sdf_msgs::SaveMap::Response &res) {
         if (!m_sdf_mapping_) {
             ROS_WARN("SDF mapping is not initialized");
             res.success = false;
@@ -1208,14 +1265,14 @@ private:
         std::filesystem::create_directories(map_file.parent_path());
         {
             auto lock = m_sdf_mapping_->GetLockGuard();
-            using Serializer = Serialization<GpSdfMapping>;
+            using Serializer = serialization::Serialization<GpSdfMapping>;
             res.success = Serializer::Write(map_file, m_sdf_mapping_.get());
         }
         return true;
     }
 
     void
-    CallbackPublishTree(const ros::TimerEvent& /* event */) {
+    CallbackPublishTree(const ros::TimerEvent & /* event */) {
         if (!m_tree_) { return; }
         if (m_pub_tree_.getNumSubscribers() == 0) { return; }  // no subscribers
         {
@@ -1230,25 +1287,23 @@ private:
     }
 
     void
-    CallbackPublishSurfacePoints(const ros::TimerEvent& /* event */) {
+    CallbackPublishSurfacePoints(const ros::TimerEvent & /* event */) {
         if (m_pub_surface_points_.getNumSubscribers() == 0) { return; }  // no subscribers
 
         using namespace erl::gp_sdf;
 
-        const auto& surf_data_manager = m_surface_mapping_->GetSurfaceDataManager();
-        // std::vector<SurfaceData<double, 3>> data =
-        //     m_sdf_mapping_->GetAbstractSurfaceMapping()->GetSurfaceData();
+        const auto &surf_data_manager = m_surface_mapping_->GetSurfaceDataManager();
 
-        auto& msg = m_msg_surface_points_;
+        auto &msg = m_msg_surface_points_;
         msg.header.stamp = ros::Time::now();
-        msg.header.seq++;
+        ++msg.header.seq;
         for (int i = 0; i < 8; ++i) {
             msg.fields[i].count = static_cast<uint32_t>(surf_data_manager.Size());
         }
         msg.width = static_cast<uint32_t>(surf_data_manager.Size());
         msg.row_step = msg.point_step * msg.width;
         msg.data.resize(msg.row_step * msg.height);
-        float* ptr = reinterpret_cast<float*>(msg.data.data());
+        float *ptr = reinterpret_cast<float *>(msg.data.data());
         for (auto d: surf_data_manager) {
             ptr[0] = static_cast<float>(d.position.x());
             ptr[1] = static_cast<float>(d.position.y());
@@ -1264,66 +1319,16 @@ private:
     }
 };
 
-template<>
-struct YAML::convert<SdfMappingNodeSetting> {
-    static YAML::Node
-    encode(const SdfMappingNodeSetting& setting) {
-        YAML::Node node;
-        ERL_YAML_SAVE_ATTR(node, setting, surface_mapping_setting_type);
-        ERL_YAML_SAVE_ATTR(node, setting, surface_mapping_setting_file);
-        ERL_YAML_SAVE_ATTR(node, setting, surface_mapping_type);
-        ERL_YAML_SAVE_ATTR(node, setting, sdf_mapping_setting_file);
-        ERL_YAML_SAVE_ATTR(node, setting, use_odom);
-        ERL_YAML_SAVE_ATTR(node, setting, odom_topic);
-        ERL_YAML_SAVE_ATTR(node, setting, odom_queue_size);
-        ERL_YAML_SAVE_ATTR(node, setting, world_frame);
-        ERL_YAML_SAVE_ATTR(node, setting, sensor_frame);
-        ERL_YAML_SAVE_ATTR(node, setting, scan_type);
-        ERL_YAML_SAVE_ATTR(node, setting, scan_frame_type);
-        ERL_YAML_SAVE_ATTR(node, setting, scan_frame_setting_file);
-        ERL_YAML_SAVE_ATTR(node, setting, scan_stride);
-        ERL_YAML_SAVE_ATTR(node, setting, convert_scan_to_points);
-        ERL_YAML_SAVE_ATTR(node, setting, scan_in_local_frame);
-        ERL_YAML_SAVE_ATTR(node, setting, depth_scale);
-        ERL_YAML_SAVE_ATTR(node, setting, publish_tree);
-        ERL_YAML_SAVE_ATTR(node, setting, publish_tree_topic);
-        ERL_YAML_SAVE_ATTR(node, setting, publish_tree_binary);
-        ERL_YAML_SAVE_ATTR(node, setting, publish_tree_frequency);
-        ERL_YAML_SAVE_ATTR(node, setting, publish_surface_points);
-        ERL_YAML_SAVE_ATTR(node, setting, publish_surface_points_topic);
-        return node;
-    }
-
-    static bool
-    decode(const YAML::Node& node, SdfMappingNodeSetting& setting) {
-        ERL_YAML_LOAD_ATTR(node, setting, surface_mapping_setting_type);
-        ERL_YAML_LOAD_ATTR(node, setting, surface_mapping_setting_file);
-        ERL_YAML_LOAD_ATTR(node, setting, surface_mapping_type);
-        ERL_YAML_LOAD_ATTR(node, setting, sdf_mapping_setting_file);
-        ERL_YAML_LOAD_ATTR(node, setting, use_odom);
-        ERL_YAML_LOAD_ATTR(node, setting, odom_topic);
-        ERL_YAML_LOAD_ATTR(node, setting, odom_queue_size);
-        ERL_YAML_LOAD_ATTR(node, setting, world_frame);
-        ERL_YAML_LOAD_ATTR(node, setting, sensor_frame);
-        ERL_YAML_LOAD_ATTR(node, setting, scan_type);
-        ERL_YAML_LOAD_ATTR(node, setting, scan_frame_type);
-        ERL_YAML_LOAD_ATTR(node, setting, scan_frame_setting_file);
-        ERL_YAML_LOAD_ATTR(node, setting, scan_stride);
-        ERL_YAML_LOAD_ATTR(node, setting, convert_scan_to_points);
-        ERL_YAML_LOAD_ATTR(node, setting, scan_in_local_frame);
-        ERL_YAML_LOAD_ATTR(node, setting, depth_scale);
-        ERL_YAML_LOAD_ATTR(node, setting, publish_tree);
-        ERL_YAML_LOAD_ATTR(node, setting, publish_tree_topic);
-        ERL_YAML_LOAD_ATTR(node, setting, publish_tree_binary);
-        ERL_YAML_LOAD_ATTR(node, setting, publish_tree_frequency);
-        ERL_YAML_LOAD_ATTR(node, setting, publish_surface_points);
-        ERL_YAML_LOAD_ATTR(node, setting, publish_surface_points_topic);
-        return true;
-    }
-};
+template<typename Dtype, int Dim>
+int
+Spin(ros::NodeHandle &nh) {
+    SdfMappingNode<Dtype, Dim> node(nh);
+    ros::spin();
+    return 0;
+}
 
 int
-main(int argc, char** argv) {
+main(int argc, char **argv) {
     ros::init(argc, argv, "sdf_mapping_node");
     ros::NodeHandle nh("~");  // ~: shorthand for the private namespace
 
@@ -1338,24 +1343,10 @@ main(int argc, char** argv) {
         "Failed to get double_precision parameter");
 
     if (double_precision) {
-        if (map_dim == 2) {
-            SdfMappingNode<double, 2> node(nh);
-            ros::spin();
-            return 0;
-        }
-
-        SdfMappingNode<double, 3> node(nh);
-        ros::spin();
-        return 0;
+        if (map_dim == 2) { return Spin<double, 2>(nh); }
+        return Spin<double, 3>(nh);
     }
 
-    if (map_dim == 2) {
-        SdfMappingNode<float, 2> node(nh);
-        ros::spin();
-        return 0;
-    }
-
-    SdfMappingNode<float, 3> node(nh);
-    ros::spin();
-    return 0;
+    if (map_dim == 2) { return Spin<float, 2>(nh); }
+    return Spin<float, 3>(nh);
 }

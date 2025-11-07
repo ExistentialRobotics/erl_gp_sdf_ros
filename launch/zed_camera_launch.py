@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+)
 from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
 from launch_ros.parameter_descriptions import ParameterFile
-from ament_index_python.packages import get_package_share_directory
-import os
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
@@ -68,7 +74,9 @@ def generate_launch_description():
         config_file = os.path.join(erl_gp_sdf_share, "config", "ros2", f"{surf_mapping_method}_{precision}_3d.yaml")
 
         if surf_mapping_method == "gp_occ":
-            surf_mapping_config = os.path.join(erl_gp_sdf_share, "config", "zed", f"gp_occ_surf_mapping_{precision}.yaml")
+            surf_mapping_config = os.path.join(
+                erl_gp_sdf_share, "config", "zed", f"gp_occ_surf_mapping_{precision}.yaml"
+            )
             sdf_mapping_config = os.path.join(erl_gp_sdf_share, "config", "zed", f"gp_occ_sdf_mapping_{precision}.yaml")
             sensor_frame = "zed_left_camera_optical_frame"
             scan_topic = "/zed/zed_node/depth/depth_registered"
@@ -76,8 +84,12 @@ def generate_launch_description():
             convert_scan_to_points = False
             scan_stride = 1
         else:  # bayesian_hilbert
-            surf_mapping_config = os.path.join(erl_gp_sdf_share, "config", "zed", f"bayesian_hilbert_surf_mapping_{precision}.yaml")
-            sdf_mapping_config = os.path.join(erl_gp_sdf_share, "config", "zed", f"bayesian_hilbert_sdf_mapping_{precision}.yaml")
+            surf_mapping_config = os.path.join(
+                erl_gp_sdf_share, "config", "zed", f"bayesian_hilbert_surf_mapping_{precision}.yaml"
+            )
+            sdf_mapping_config = os.path.join(
+                erl_gp_sdf_share, "config", "zed", f"bayesian_hilbert_sdf_mapping_{precision}.yaml"
+            )
             sensor_frame = "zed_left_camera_frame"
             scan_topic = "/zed/zed_node/point_cloud/cloud_registered"
             scan_type = "sensor_msgs/msg/PointCloud2"
@@ -93,7 +105,7 @@ def generate_launch_description():
             "sdf_mapping_setting_file": sdf_mapping_config,
             "use_odom": False,
             "odom_topic": "/zed/zed_node/odom",
-            "odom_msg_type": "nav_msgs/msg/Odometry",
+            "odom_msg_type": "odometry",
             "sensor_frame": sensor_frame,
             "scan_topic": scan_topic,
             "scan_type": scan_type,
@@ -146,9 +158,9 @@ def generate_launch_description():
                 "attached_to_frame": True,
                 "world_frame": "map",
                 "attached_frame": "zed_left_camera_frame",
-                "service_name": "/sdf_query",
-                "map_topic_name": "sdf_grid_map",
-                "point_cloud_topic_name": "sdf_point_cloud",
+                "sdf_query_service.path": "/sdf_query",
+                "map_topic.path": "sdf_grid_map",
+                "point_cloud_topic.path": "sdf_point_cloud",
             }
         ],
         condition=IfCondition(LaunchConfiguration("visualize_sdf")),
@@ -178,10 +190,10 @@ def generate_launch_description():
                 "publish_rate": 10.0,
                 "attached_to_frame": False,
                 "world_frame": "map",
-                "attached_frame": "zed_left_camera_frame",
-                "service_name": "/sdf_query",
-                "map_topic_name": "sdf_grid_map",
-                "point_cloud_topic_name": "sdf_point_cloud",
+                "attached_frame": "sdf_global_frame",
+                "sdf_query_service.path": "/sdf_query",
+                "map_topic.path": "sdf_grid_map",
+                "point_cloud_topic.path": "sdf_point_cloud",
             }
         ],
         condition=IfCondition(LaunchConfiguration("visualize_sdf")),
@@ -192,10 +204,7 @@ def generate_launch_description():
         package="rviz2",
         executable="rviz2",
         name="rviz2",
-        arguments=[
-            "-d",
-            PathJoinSubstitution([FindPackageShare("erl_gp_sdf_ros"), "rviz2", "zed.rviz"])
-        ],
+        arguments=["-d", PathJoinSubstitution([FindPackageShare("erl_gp_sdf_ros"), "rviz2", "zed.rviz"])],
         condition=IfCondition(LaunchConfiguration("open_rviz")),
     )
 
@@ -208,26 +217,26 @@ def generate_launch_description():
             LaunchConfiguration("zed_bag_dir"),
             "--rate",
             LaunchConfiguration("rosbag_play_rate"),
-            "--clock"
+            "--clock",
         ],
         name="rosbag_play",
         output="screen",
-        condition=IfCondition(LaunchConfiguration("play_rosbag"))
+        condition=IfCondition(LaunchConfiguration("play_rosbag")),
     )
 
     # ZED wrapper launch (when not playing rosbag)
     # Note: This assumes there's a ROS2 version of zed_wrapper launch file
     # You may need to adjust the package name and launch file name
     zed_launch = IncludeLaunchDescription(
-        PathJoinSubstitution([
-            FindPackageShare("zed_wrapper"),
-            "launch",
-            "zed_camera.launch.py",
-        ]),
-        launch_arguments={
-            "camera_model": "zed"
-        }.items(),
-        condition=UnlessCondition(LaunchConfiguration("play_rosbag"))
+        PathJoinSubstitution(
+            [
+                FindPackageShare("zed_wrapper"),
+                "launch",
+                "zed_camera.launch.py",
+            ]
+        ),
+        launch_arguments={"camera_model": "zed"}.items(),
+        condition=UnlessCondition(LaunchConfiguration("play_rosbag")),
     )
 
     # RQT plot node (if needed)
@@ -236,26 +245,27 @@ def generate_launch_description():
         executable="rqt_plot",
         name="rqt_plot",
         condition=IfCondition(LaunchConfiguration("open_rqt_plot")),
-        arguments=["/update_time/temperature", "/query_time/temperature"],
+        arguments=["/update_time/data", "/query_time/data"],
     )
 
-    return LaunchDescription([
-        # Launch arguments
-        zed_bag_dir_arg,
-        precision_arg,
-        surf_mapping_method_arg,
-        visualize_sdf_arg,
-        open_rviz_arg,
-        open_rqt_plot_arg,
-        rosbag_play_rate_arg,
-        play_rosbag_arg,
-
-        # Nodes and processes
-        sdf_mapping_node_opaque,
-        sdf_visualization_node_follow,
-        sdf_visualization_node_global,
-        rviz_node,
-        rosbag_play_process,
-        zed_launch,
-        rqt_plot_node,
-    ])
+    return LaunchDescription(
+        [
+            # Launch arguments
+            zed_bag_dir_arg,
+            precision_arg,
+            surf_mapping_method_arg,
+            visualize_sdf_arg,
+            open_rviz_arg,
+            open_rqt_plot_arg,
+            rosbag_play_rate_arg,
+            play_rosbag_arg,
+            # Nodes and processes
+            sdf_mapping_node_opaque,
+            sdf_visualization_node_follow,
+            sdf_visualization_node_global,
+            rviz_node,
+            rosbag_play_process,
+            zed_launch,
+            rqt_plot_node,
+        ]
+    )

@@ -3,13 +3,13 @@ local_bhm:
         diagonal_sigma: true
         min_distance: 0.3
         max_distance: 3.5
-        sampling_area_scale: 1
+        sampling_area_scale: 2.5
         free_points_per_meter: 3
         free_sampling_margin: 0.001
         init_mu: 0.0
         init_sigma: 10000
-        num_em_iterations: 2
-        sparse_zero_threshold: 1.0e-3
+        num_em_iterations: 1
+        sparse_zero_threshold: 0.001
         use_sparse: true
     kernel_type: erl::covariance::RadialBiasFunction<float, 3>
     kernel_setting_type: erl::covariance::Covariance<float>::Setting
@@ -17,11 +17,17 @@ local_bhm:
         x_dim: 3
         scale: 0.025
         scale_mix: 1
-        weights: [ ]
-    min_dataset_size: 20
-    max_dataset_size: 2000
-    hit_buffer_size: 0
-    surface_grid_size: 5
+        weights: []
+    min_dataset_size: 64
+    max_dataset_size: 150
+    hit_point_buffer_size: 64
+    ray_buffer_size: 1024
+    surface_grid_size: 7
+    surface_log_odds: 0.0
+    surface_log_odds_init_count: 1
+    surface_log_odds_min: -5.0
+    surface_log_odds_max: 20.0
+    faster_prediction: true
 ray_selector:
     azimuth_min: -0.55
     azimuth_max: 0.55
@@ -30,11 +36,11 @@ ray_selector:
     num_azimuth_angles: 640
     num_elevation_angles: 480
     transform:
-        - [ 1, 0, 0, 0 ]
-        - [ 0, 1, 0, 0 ]
-        - [ 0, 0, 1, 0 ]
+        - [1, 0, 0, 0]
+        - [0, 1, 0, 0]
+        - [0, 0, 1, 0]
 tree:
-    resolution: 0.1  # 0.15 # 0.1
+    resolution: 0.1 # 0.15 # 0.1
     tree_depth: 16
     log_odd_min: -10
     log_odd_max: 10
@@ -44,8 +50,8 @@ tree:
     use_change_detection: false
     use_aabb_limit: false
     aabb:
-        center: [ 0, 0, 0 ]
-        half_sizes: [ 0, 0, 0 ]
+        center: [0, 0, 0]
+        half_sizes: [0, 0, 0]
 update_tree:
     with_count: false
     parallel: true
@@ -54,26 +60,24 @@ update_tree:
 update_map:
     method: 2
     surface_max_abs_logodd: 2
-    surface_bad_abs_logodd: 100
+    surface_bad_abs_logodd: 200
     surface_step_size: 0.001
+    auto_surface_log_odds: true
+    max_num_bhm: 1000
     max_num_points: 50000
-    max_num_voxels: 20000
-    max_adjust_tries: 1  # 2
+    max_adjust_tries: 1
+    max_num_voxels: 8000
     var_scale: 0.01
     var_max: 1.5
-    update_with_cuda: false
-    cuda_device_id: 0
-    update_batch_size: 128
 scaling: 1.0
 bhm_depth: 15
-weight_sync: false
-sync_method: "bayesian"
-hinged_grid_size: 5
-bhm_overlap: 0.08  # 0.15 # 0.12
+weight_sync: true
+sync_method: "copy" # copy, mean, or bayesian
+hinged_grid_size: 7
+bhm_overlap: 0.15
 bhm_overlap_sync: 1
 build_bhm_on_hit: true
-faster_prediction: true
-surface_log_odds: 0.0
-bhm_test_margin: 0.07 # 0.12 # 0.1
+bhm_test_margin: 0.07 # 0.045 # 0.07 # 0.3 # 0.7
+unknown_log_odds: -100.0 # unknown space log-odds
 test_knn: 1
 test_batch_size: 1000

@@ -111,8 +111,12 @@ def generate_launch_description():
             config_file_1 = os.path.join(pkg_share, "config", "ros2", f"{surf_mapping_method}_{precision}_3d.yaml")
             config_file_2 = os.path.join(pkg_share, "config", "ros2", f"use_lidar_frame_3d_{precision}.yaml")
         else:
-            config_file_1 = os.path.join(pkg_share, "config", "ros2", f"{namespace}_{surf_mapping_method}_{precision}_3d.yaml")
-            config_file_2 = os.path.join(pkg_share, "config", "ros2", f"{namespace}_use_lidar_frame_3d_{precision}.yaml")
+            config_file_1 = os.path.join(
+                pkg_share, "config", "ros2", f"{namespace}_{surf_mapping_method}_{precision}_3d.yaml"
+            )
+            config_file_2 = os.path.join(
+                pkg_share, "config", "ros2", f"{namespace}_use_lidar_frame_3d_{precision}.yaml"
+            )
         surf_mapping_config = os.path.join(
             pkg_share, "config", "jackal_3d", f"{surf_mapping_method}_surf_mapping_lidar_{precision}.yaml"
         )
@@ -120,8 +124,6 @@ def generate_launch_description():
             pkg_share, "config", "jackal_3d", f"{surf_mapping_method}_sdf_mapping_lidar_{precision}.yaml"
         )
         scan_frame_config = os.path.join(pkg_share, "config", "jackal_3d", "lidar_frame_3d_360.yaml")
-
-
 
         remappings = None
         if namespace is not None:
@@ -147,11 +149,11 @@ def generate_launch_description():
                         "sdf_mapping_setting_file": sdf_mapping_config,
                         "use_odom": False,
                         "odom_topic": f"/{robot_name}/dlo/odom_node/odom",
-                        "odom_msg_type": "nav_msgs/msg/Odometry",
+                        "odom_msg_type": "odometry",
                         "world_frame": "map",
                         "sensor_frame": f"{robot_name}/os_sensor",
                         "scan_topic": f"/{robot_name}/ouster/points",
-                        "scan_type": "sensor_msgs/msg/PointCloud2",
+                        "scan_type": "point_cloud",
                         "scan_frame_setting_file": scan_frame_config,
                         "scan_stride": 1,
                         "convert_scan_to_points": surf_mapping_method == "bayesian_hilbert",
@@ -198,9 +200,9 @@ def generate_launch_description():
                         "attached_to_frame": True,
                         "world_frame": "map",
                         "attached_frame": f"{robot_name}/os_sensor",
-                        "service_name": "sdf_query",
-                        "map_topic_name": "sdf_grid_map",
-                        "point_cloud_topic_name": "sdf_point_cloud",
+                        "sdf_query_service.path": "sdf_query",
+                        "map_topic.path": "sdf_grid_map",
+                        "point_cloud_topic.path": "sdf_point_cloud",
                     }
                 ],
             )
@@ -235,7 +237,7 @@ def generate_launch_description():
                 executable="rqt_plot",
                 name="rqt_plot",
                 condition=IfCondition(LaunchConfiguration("open_rqt_plot")),
-                arguments=[f"{namespace}/update_time/temperature", f"{namespace}/query_time/temperature"],
+                arguments=[f"{namespace}/update_time/data", f"{namespace}/query_time/data"],
             )
         ]
 

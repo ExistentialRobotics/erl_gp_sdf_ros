@@ -4,12 +4,12 @@ surface_mapping_type: erl::gp_sdf::BayesianHilbertSurfaceMapping<float, 3>
 sdf_mapping_setting_file: config/template/sdf_mapping_3d_float.yaml
 use_odom: false
 odom_topic: /jackal_velocity_controller/odom
-odom_msg_type: geometry_msgs/TransformStamped  # or nav_msgs/Odometry
+odom_msg_type: transform_stamped # "odometry" or "transform_stamped"
 odom_queue_size: 200
 world_frame: map
 sensor_frame: camera
 scan_topic: /camera/depth
-scan_type: sensor_msgs/Image
+scan_type: depth # "laser", "point_cloud", or "depth"
 scan_frame_type: erl::geometry::DepthFrame3D<float>
 scan_frame_setting_file: config/sensors/depth_frame.yaml
 scan_stride: 1
@@ -17,9 +17,14 @@ convert_scan_to_points: true
 scan_in_local_frame: true
 depth_scale: 0.001
 publish_tree: false
-publish_tree_topic: surface_mapping_tree
 publish_tree_binary: true
 publish_tree_frequency: 5.0
+tree_topic: surface_mapping_tree
 publish_surface_points: false
-publish_surface_points_topic: surface_points
 publish_surface_points_frequency: 5.0
+surface_points_topic: surface_points
+update_time_topic: update_time
+query_time_topic: query_time
+sdf_query_service: sdf_query
+save_map_service: save_map
+load_map_service: load_map

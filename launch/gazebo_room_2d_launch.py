@@ -57,7 +57,7 @@ def generate_launch_description():
                 "data_folder": PathJoinSubstitution([FindPackageShare("erl_geometry"), "data", "gazebo"]),
                 "laser_frame": "front_laser",
                 "map_frame": "map",
-                "topic_name": "scan",  # Namespace is `/`, so the actual path is `/scan`.
+                "laser_topic.path": "scan",  # Namespace is `/`, so the actual path is `/scan`.
                 "publish_rate": LaunchConfiguration("scan_publish_rate"),
             }
         ],
@@ -122,7 +122,7 @@ def generate_launch_description():
                         "double_precision": precision == "double",
                         "surface_mapping_setting_file": surf_mapping_config,
                         "sdf_mapping_setting_file": sdf_mapping_config,
-                        "scan_topic": "scan",
+                        "scan_topic.path": "scan",
                         "scan_frame_setting_file": scan_frame_config,
                         "publish_tree": True,
                     },
@@ -151,12 +151,12 @@ def generate_launch_description():
                 "publish_covariance": False,
                 "publish_grid_map": True,
                 "publish_point_cloud": True,
-                "publish_rate": 20.0,
+                "publish_rate": 5.0,
                 "attached_to_frame": False,
                 "world_frame": "map",
-                "service_name": "sdf_query",
-                "map_topic_name": "sdf_grid_map",
-                "point_cloud_topic_name": "sdf_point_cloud",
+                "sdf_query_service.path": "sdf_query",
+                "map_topic.path": "sdf_grid_map",
+                "point_cloud_topic.path": "sdf_point_cloud",
             }
         ],
     )
@@ -178,7 +178,7 @@ def generate_launch_description():
         package="rqt_plot",
         executable="rqt_plot",
         name="rqt_plot",
-        arguments=["/update_time/temperature", "/query_time/temperature"],
+        arguments=["/update_time/data", "/query_time/data"],
         condition=IfCondition(LaunchConfiguration("open_rqt_plot")),
     )
 

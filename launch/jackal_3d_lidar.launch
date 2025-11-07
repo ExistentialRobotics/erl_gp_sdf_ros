@@ -26,11 +26,11 @@
         <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/jackal_3d/$(arg surf_mapping_method)_sdf_mapping_lidar_$(arg precision).yaml" />
         <param name="use_odom" value="false" />
         <param name="odom_topic" value="/$(arg robot_name)/dlo/odom_node/odom" />
-        <param name="odom_msg_type" value="nav_msgs/Odometry" />
+        <param name="odom_msg_type" value="odometry" />
         <param name="world_frame" value="map" />
         <param name="sensor_frame" value="$(arg robot_name)/os_sensor" />
         <param name="scan_topic" value="/$(arg robot_name)/ouster/points" />
-        <param name="scan_type" value="sensor_msgs/PointCloud2" />
+        <param name="scan_type" value="point_cloud" />
         <param name="scan_frame_setting_file" value="$(find erl_gp_sdf_ros)/config/jackal_3d/lidar_frame_3d_360.yaml" />
         <param name="scan_stride" value="1" />
         <param name="convert_scan_to_points" value="$(eval surf_mapping_method == 'bayesian_hilbert')" />
@@ -52,14 +52,14 @@
             <param name="publish_gradient_variance" value="true" />
             <param name="publish_covariance" value="false" />
             <param name="publish_grid_map" value="true" />
-            <param name="publish_point_cloud" value="true" />
+            <param name="publish_point_cloud" value="false" />
             <param name="publish_rate" value="10.0" />
             <param name="attached_to_frame" value="true" />
             <param name="world_frame" value="map" />
             <param name="attached_frame" value="$(arg robot_name)/os_sensor" />
-            <param name="service_name" value="/sdf_mapping_node/sdf_query" />
-            <param name="map_topic_name" value="sdf_grid_map" />
-            <param name="point_cloud_topic_name" value="sdf_point_cloud" />
+            <param name="sdf_query_service" value="/sdf_mapping_node/sdf_query" />
+            <param name="map_topic" value="sdf_grid_map" />
+            <param name="point_cloud_topic" value="sdf_point_cloud" />
         </node>
     </group>
 
@@ -68,7 +68,7 @@
     </group>
 
     <group if="$(arg open_rqt_plot)">
-        <node pkg="rqt_plot" type="rqt_plot" name="rqt_plot" args="/sdf_mapping_node/update_time/temperature /sdf_mapping_node/query_time/temperature" />
+        <node pkg="rqt_plot" type="rqt_plot" name="rqt_plot" args="/sdf_mapping_node/update_time/data /sdf_mapping_node/query_time/data" />
     </group>
 
     <group if="$(arg play_rosbag)">

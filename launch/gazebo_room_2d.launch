@@ -16,7 +16,7 @@
         <param name="data_folder" value="$(find erl_geometry)/data/gazebo" />
         <param name="laser_frame" value="front_laser" />
         <param name="map_frame" value="map" />
-        <param name="topic_name" value="scan" />
+        <param name="laser_topic" value="scan" />
         <param name="publish_rate" value="$(arg scan_publish_rate)" />
     </node>
     <node pkg="tf2_ros" type="static_transform_publisher" name="map_odom_transformer" args="0 0 0 0 0 0 1 map odom" />
@@ -43,12 +43,12 @@
             <param name="publish_covariance" value="false" />
             <param name="publish_grid_map" value="true" />
             <param name="publish_point_cloud" value="true" />
-            <param name="publish_rate" value="20.0" />
+            <param name="publish_rate" value="2.0" />
             <param name="attached_to_frame" value="false" />
             <param name="world_frame" value="map" />
-            <param name="service_name" value="/sdf_mapping_node/sdf_query" />
-            <param name="map_topic_name" value="sdf_grid_map" />
-            <param name="point_cloud_topic_name" value="sdf_point_cloud" />
+            <param name="sdf_query_service" value="/sdf_mapping_node/sdf_query" />
+            <param name="map_topic" value="sdf_grid_map" />
+            <param name="point_cloud_topic" value="sdf_point_cloud" />
         </node>
     </group>
 
@@ -57,6 +57,6 @@
     </group>
 
     <group if="$(arg open_rqt_plot)">
-        <node pkg="rqt_plot" type="rqt_plot" name="rqt_plot" args="/sdf_mapping_node/update_time/temperature /sdf_mapping_node/query_time/temperature" />
+        <node pkg="rqt_plot" type="rqt_plot" name="rqt_plot" args="/sdf_mapping_node/update_time/data /sdf_mapping_node/query_time/data" />
     </group>
 </launch>
