@@ -92,7 +92,7 @@ def generate_launch_description():
 
     sensor_frame_arg = DeclareLaunchArgument(
 
-        "sensor_frame", default_value=f"jackal2/os_sensor",
+        "sensor_frame", default_value=f"jackal2/base_link",
 
         description="Sensor frame ID published in TF (prefix with robot if your TF tree uses it)"
 
@@ -284,6 +284,8 @@ def generate_launch_description():
                 "attached_to_frame": True,
 
                 "world_frame": world_frame,
+
+                "target_frame": world_frame,  
 
                 "attached_frame": sensor_frame,
 
