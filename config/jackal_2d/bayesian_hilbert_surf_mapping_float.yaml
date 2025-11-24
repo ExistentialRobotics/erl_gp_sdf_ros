@@ -1,0 +1,39 @@
+__base__: ../common/bayesian_hilbert_surf_mapping_float.yaml
+local_bhm:
+    bhm:
+        min_distance: 0.0
+        max_distance: 50
+        free_points_per_meter: 2.0
+        free_sampling_margin: 0.005
+    kernel_type: erl::covariance::RadialBiasFunction<float, 2>
+    kernel:
+        x_dim: 2
+        scale: 0.075
+    min_dataset_size: 16
+    min_dataset_hit_size: 8
+    max_dataset_size: 256
+    hit_point_buffer_size: 128
+    ray_buffer_size: 2048
+    surface_grid_size: 7
+ray_selector:    # make sure this matches the LiDAR specs
+    angle_min: -2.356194496154785
+    angle_max: 2.338737726211548
+    num_angles: 270
+    transform:
+        - [ 1, 0, 0 ]
+        - [ 0, 1, 0 ]
+tree:
+    resolution: 0.35
+    log_odd_min: -5
+    log_odd_max: 10
+    log_odd_hit: 0.95
+    log_odd_miss: -0.05
+    log_odd_occ_threshold: 0
+update_map:
+    method: 2
+    max_num_bhm: 2000
+    max_num_voxels: 8000
+scaling: 1.0
+hinged_grid_size: 9
+bhm_test_margin: 0.15
+unknown_log_odds: 100.0  # unknown space log-odds, >0: occupied, <0: free

@@ -66,7 +66,7 @@
             <param name="z" value="0.0" />
             <param name="publish_gradient" value="true" />
             <param name="publish_sdf_variance" value="true" />
-            <param name="publish_gradient_variance" value="true" />
+            <param name="publish_gradient_variance" value="false" />
             <param name="publish_covariance" value="false" />
             <param name="publish_grid_map" value="true" />
             <param name="publish_point_cloud" value="false" />

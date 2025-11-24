@@ -1,0 +1,46 @@
+compute_variance:
+    zero_gradient_position_var: 1
+    zero_gradient_gradient_var: 1
+    min_distance_var: 1
+    max_distance_var: 100
+    position_var_alpha: 0.01
+    direction_var_alpha: 0.01
+    min_gradient_var: 0.01
+    max_gradient_var: 1
+update_tree:
+    with_count: false
+    parallel: true
+    lazy_eval: true
+    discrete: true
+update_map_points:
+    max_adjust_tries: 3
+    min_observable_occ: -0.08
+    min_position_var: 0.001
+    min_gradient_var: 0.01
+    max_surface_abs_occ: 0.02
+    max_valid_gradient_var: 0.5
+    max_bayes_position_var: 1.0
+    max_bayes_gradient_var: 0.6
+    max_num_points: 100000
+sensor_gp:
+    init_variance: 1000000
+    max_valid_range_var: 0.1
+    occ_test_temperature: 30
+    gp:
+        kernel_setting_type: erl::covariance::Covariance<float>::Setting
+        kernel:
+            scale_mix: 1
+    mapping:
+        type: inverse_sqrt
+        scale: 1
+tree:
+    tree_depth: 16
+    use_change_detection: false
+    use_aabb_limit: false
+    aabb:
+        center: [ 0, 0, 0 ]
+        half_sizes: [ 0, 0, 0 ]
+scaling: 1.0
+zero_gradient_threshold: 1.0e-10
+update_occupancy: true
+cluster_depth: 15

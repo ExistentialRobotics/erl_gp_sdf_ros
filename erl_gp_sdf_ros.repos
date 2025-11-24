@@ -2,7 +2,7 @@ repositories:
     erl_cmake_tools:
         type: git
         url: https://github.com/ExistentialRobotics/erl_cmake_tools.git
-        version: v0.2.0
+        version: v0.3.0
     erl_common:
         type: git
         url: https://github.com/ExistentialRobotics/erl_common.git

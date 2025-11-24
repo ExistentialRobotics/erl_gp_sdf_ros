@@ -1,0 +1,54 @@
+local_bhm:
+    bhm:
+        diagonal_sigma: true
+        sampling_area_scale: 3.0
+        free_points_per_meter: 3.0
+        free_sampling_margin: 0.001
+        init_mu: 0.0
+        init_sigma: 10000
+        num_em_iterations: 1
+        sparse_zero_threshold: 0.001
+        use_sparse: true
+    kernel_type: erl::covariance::RadialBiasFunction<float, 3>
+    kernel_setting_type: erl::covariance::Covariance<float>::Setting
+    kernel:
+        scale_mix: 1
+    surface_log_odds: 0.0
+    surface_log_odds_init_count: 1
+    surface_log_odds_min: -5.0
+    surface_log_odds_max: 20.0
+    auto_surface_log_odds: true
+    include_neighbor_voxels: true
+    faster_prediction: true
+tree:
+    tree_depth: 16
+    use_change_detection: false
+    use_aabb_limit: false
+    aabb:
+        center: [ 0, 0, 0 ]
+        half_sizes: [ 0, 0, 0 ]
+update_tree:
+    with_count: false
+    parallel: true
+    lazy_eval: true
+    discrete: true
+update_map:
+    method: 2
+    surface_max_abs_logodd: 2
+    surface_bad_abs_logodd: 200
+    surface_step_size: 0.001
+    include_neighbor_bhm: true
+    max_num_points: 50000
+    max_adjust_tries: 1
+    var_scale: 0.1
+    var_max: 1.5
+scaling: 1.0
+bhm_depth: 15
+weight_sync: true
+sync_method: "copy"  # copy, mean, or bayesian
+bhm_overlap: 0.3
+bhm_overlap_sync: 1
+build_bhm_on_hit: true
+unknown_log_odds: 100.0  # unknown space log-odds
+test_knn: 1
+test_batch_size: 1000
