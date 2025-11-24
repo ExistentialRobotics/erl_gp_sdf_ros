@@ -597,7 +597,33 @@ public:
             }
         }
 
-        // advertise the service to query the SDF mapping
+// advertise the service to query the SDF mapping
+#ifdef ROS_HUMBLE
+        m_srv_query_sdf_ = this->create_service<erl_gp_sdf_msgs::srv::SdfQuery>(
+            m_setting_.sdf_query_service.path,
+            std::bind(
+                &SdfMappingNode::CallbackSdfQuery,
+                this,
+                std::placeholders::_1,
+                std::placeholders::_2),
+            m_setting_.sdf_query_service.GetQoS().get_rmw_qos_profile());
+        m_srv_load_map_ = this->create_service<erl_gp_sdf_msgs::srv::SaveMap>(
+            m_setting_.load_map_service.path,
+            std::bind(
+                &SdfMappingNode::CallbackLoadMap,
+                this,
+                std::placeholders::_1,
+                std::placeholders::_2),
+            m_setting_.load_map_service.GetQoS().get_rmw_qos_profile());
+        m_srv_save_map_ = this->create_service<erl_gp_sdf_msgs::srv::SaveMap>(
+            m_setting_.save_map_service.path,
+            std::bind(
+                &SdfMappingNode::CallbackSaveMap,
+                this,
+                std::placeholders::_1,
+                std::placeholders::_2),
+            m_setting_.save_map_service.GetQoS().get_rmw_qos_profile());
+#else
         m_srv_query_sdf_ = this->create_service<erl_gp_sdf_msgs::srv::SdfQuery>(
             m_setting_.sdf_query_service.path,
             std::bind(
@@ -622,7 +648,7 @@ public:
                 std::placeholders::_1,
                 std::placeholders::_2),
             m_setting_.save_map_service.GetQoS());
-
+#endif
         // publish the occupancy tree used by the surface mapping
         if (m_setting_.publish_tree) {
             if (!TryToGetSurfaceMappingTree()) {

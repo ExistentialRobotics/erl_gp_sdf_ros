@@ -176,10 +176,15 @@ public:
         RCLCPP_INFO(logger, "Loaded node parameters:\n%s", m_setting_.AsYamlString().c_str());
 
         InitQueryPoints();
-
+#ifdef ROS_HUMBLE
+        m_sdf_client_ = this->create_client<erl_gp_sdf_msgs::srv::SdfQuery>(
+            m_setting_.sdf_query_service.path,
+            m_setting_.sdf_query_service.GetQoS().get_rmw_qos_profile());
+#else
         m_sdf_client_ = this->create_client<erl_gp_sdf_msgs::srv::SdfQuery>(
             m_setting_.sdf_query_service.path,
             m_setting_.sdf_query_service.GetQoS());
+#endif
         if (m_setting_.publish_grid_map) {
             m_pub_map_ = this->create_publisher<grid_map_msgs::msg::GridMap>(
                 m_setting_.map_topic.path,
