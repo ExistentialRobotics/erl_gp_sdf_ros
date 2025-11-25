@@ -62,7 +62,7 @@ def generate_launch_description():
     )
     play_rosbag_arg = DeclareLaunchArgument(
         "play_rosbag",
-        default_value="true",
+        default_value="false",
         description="Whether to play the rosbag file",
     )
 
