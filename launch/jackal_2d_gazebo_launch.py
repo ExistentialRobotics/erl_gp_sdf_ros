@@ -84,7 +84,7 @@ def generate_launch_description():
 
     world_frame_arg = DeclareLaunchArgument(
 
-        "world_frame", default_value="map",
+        "world_frame", default_value="odom",
 
         description="World frame that SDF is attached to (typically odom)"
 
@@ -145,9 +145,9 @@ def generate_launch_description():
         )
 
         scan_frame_config = os.path.join(pkg_share, "config", "lidar_frame_2d_gazebo.yaml")
-        #scan_frame_config = os.path.join(pkg_share, "config", "lidar_frame_3d_360.yaml")
+        
 
-        odom_topic = f"/{robot}/dlo/odom_node/odom"
+        odom_topic = f"/dlio/odom_node/odom"
 
         scan_topic = f"/scan"
 
