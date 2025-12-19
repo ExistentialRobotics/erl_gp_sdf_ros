@@ -115,6 +115,7 @@ def generate_launch_description():
                 executable="sdf_mapping_node",
                 name="sdf_mapping_node",
                 output="screen",
+                # prefix=["gdbserver localhost:3000"],
                 parameters=[
                     ParameterFile(config_file, allow_substs=True),
                     {

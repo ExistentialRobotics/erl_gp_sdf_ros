@@ -1,4 +1,4 @@
 sdf_mapping_node:
     ros__parameters:
-        scan_type: sensor_msgs/msg/PointCloud2
+        scan_type: point_cloud # "laser", "point_cloud", or "depth"
         scan_frame_type: erl::geometry::LidarFrame3D<float>
