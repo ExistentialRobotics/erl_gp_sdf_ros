@@ -28,3 +28,4 @@ query_time_topic: query_time
 sdf_query_service: sdf_query
 save_map_service: save_map
 load_map_service: load_map
+save_mesh_service: save_mesh

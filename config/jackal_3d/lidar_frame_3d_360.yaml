@@ -1,7 +1,7 @@
 row_margin: 1
 col_margin: 1
-valid_range_min: 1.0
-valid_range_max: 20.0
+valid_range_min: 0.5
+valid_range_max: 5.0
 azimuth_min: -3.141558
 azimuth_max: 3.141577
 elevation_min: -0.35

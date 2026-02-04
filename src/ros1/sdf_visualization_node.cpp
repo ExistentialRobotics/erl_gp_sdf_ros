@@ -1,15 +1,21 @@
+#include "erl_common/eigen.hpp"
 #include "erl_common/yaml.hpp"
+#include "erl_gp_sdf_msgs/SaveMap.h"
 #include "erl_gp_sdf_msgs/SdfQuery.h"
 
+#include <Eigen/src/Core/util/Constants.h>
 #include <geometry_msgs/Vector3.h>
 #include <grid_map_msgs/GridMap.h>
 #include <grid_map_ros/grid_map_ros.hpp>
+#include <ros/console.h>
 #include <ros/ros.h>
 #include <tf/transform_datatypes.h>
 #include <tf2_eigen/tf2_eigen.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
 #include <visualization_msgs/MarkerArray.h>
+
+#include <filesystem>
 
 using namespace erl::common;
 
@@ -52,6 +58,8 @@ struct SdfVisNodeConfig : public Yamlable<SdfVisNodeConfig> {
     std::string map_topic = "sdf_grid_map";
     // the name of the topic to publish the point cloud.
     std::string point_cloud_topic = "sdf_point_cloud";
+    // save query service
+    std::string save_query_service = "sdf_save_query";
 
     ERL_REFLECT_SCHEMA(
         SdfVisNodeConfig,
@@ -73,7 +81,8 @@ struct SdfVisNodeConfig : public Yamlable<SdfVisNodeConfig> {
         ERL_REFLECT_MEMBER(SdfVisNodeConfig, world_frame),
         ERL_REFLECT_MEMBER(SdfVisNodeConfig, sdf_query_service),
         ERL_REFLECT_MEMBER(SdfVisNodeConfig, map_topic),
-        ERL_REFLECT_MEMBER(SdfVisNodeConfig, point_cloud_topic));
+        ERL_REFLECT_MEMBER(SdfVisNodeConfig, point_cloud_topic),
+        ERL_REFLECT_MEMBER(SdfVisNodeConfig, save_query_service));
 
     bool
     PostDeserialization() override {
@@ -128,6 +137,10 @@ struct SdfVisNodeConfig : public Yamlable<SdfVisNodeConfig> {
             ROS_WARN("point_cloud_topic is empty");
             return false;
         }
+        if (save_query_service.empty()) {
+            ROS_WARN("save_query_service is empty");
+            return false;
+        }
         return true;
     }
 };
@@ -138,6 +151,7 @@ class SdfVisualizationNode {
     ros::ServiceClient m_sdf_client_;
     ros::Publisher m_pub_map_;
     ros::Publisher m_pub_pcd_;
+    ros::ServiceServer m_srv_save_query_;
     ros::Timer m_timer_;
     tf2_ros::Buffer m_tf_buffer_;
     tf2_ros::TransformListener m_tf_listener_{m_tf_buffer_};
@@ -168,6 +182,10 @@ public:
             m_pub_pcd_ =
                 m_nh_.advertise<sensor_msgs::PointCloud2>(m_setting_.point_cloud_topic, 1, true);
         }
+        m_srv_save_query_ = m_nh_.advertiseService(
+            m_setting_.save_query_service,
+            &SdfVisualizationNode::CallbackSaveQuery,
+            this);
         m_grid_map_.setFrameId(m_setting_.attached_frame);
         m_sdf_frame_pose_.header.frame_id = m_setting_.world_frame;
         m_sdf_frame_pose_.child_frame_id = m_setting_.attached_frame;
@@ -225,15 +243,13 @@ private:
             m_setting_.y_cells);
     }
 
-    void
-    CallbackTimer(const ros::TimerEvent &) {
-
+    bool
+    MakeSdfQuery(erl_gp_sdf_msgs::SdfQuery &srv) {
         if (!m_sdf_client_.exists()) {
             ROS_WARN("SDF query service %s not available", m_setting_.sdf_query_service.c_str());
-            return;
+            return false;
         }
 
-        erl_gp_sdf_msgs::SdfQuery srv;
         geometry_msgs::TransformStamped transform_stamped;
 
         if (m_setting_.attached_to_frame) {
@@ -245,7 +261,7 @@ private:
                     ros::Duration(1.0));
             } catch (tf2::TransformException &ex) {
                 ROS_WARN(ex.what());
-                return;
+                return false;
             }
             srv.request.query_points.clear();
             srv.request.query_points.reserve(m_query_points_.size());
@@ -267,21 +283,31 @@ private:
 
         if (!m_sdf_client_.call(srv)) {
             ROS_WARN("Failed to call %s", m_sdf_client_.getService().c_str());
-            return;
+            return false;
         }
 
         auto &ans = srv.response;
         if (!ans.success) {
             ROS_WARN("SDF query failed");
-            return;
+            return false;
         }
 
         const auto n = static_cast<int>(ans.signed_distances.size());
         const auto map_size = m_grid_map_.getSize();
         if (const auto m = map_size[0] * map_size[1]; n != m) {
             ROS_WARN("Query points size %d does not match map size %d", n, m);
-            return;
+            return false;
         }
+
+        return true;
+    }
+
+    void
+    CallbackTimer(const ros::TimerEvent &) {
+        erl_gp_sdf_msgs::SdfQuery srv;
+        if (!MakeSdfQuery(srv)) { return; }
+
+        auto &ans = srv.response;
 
         // 1. copy the result to the grid map / the point cloud
         // 2. publish the grid map / point cloud
@@ -306,6 +332,86 @@ private:
             LoadResponseToPointCloud(ans);
             m_pub_pcd_.publish(m_cloud_);
         }
+    }
+
+    bool
+    CallbackSaveQuery(
+        erl_gp_sdf_msgs::SaveMap::Request &req,
+        erl_gp_sdf_msgs::SaveMap::Response &res) {
+        erl_gp_sdf_msgs::SdfQuery srv;
+        if (req.name.empty()) {
+            ROS_WARN("Save query name is empty");
+            res.success = false;
+            return false;
+        }
+        if (!MakeSdfQuery(srv)) {
+            res.success = false;
+            return false;
+        }
+
+        if (!std::filesystem::exists(req.name)) { std::filesystem::create_directories(req.name); }
+        if (!std::filesystem::is_directory(req.name)) {
+            ROS_WARN("Save query path %s is not a directory", req.name.c_str());
+            res.success = false;
+            return false;
+        }
+
+        auto &ans = srv.response;
+        std::filesystem::path dir_path(req.name);
+
+        Eigen::Map<const Eigen::VectorXd> sdf(
+            ans.signed_distances.data(),
+            ans.signed_distances.size());
+        const auto sdf_filepath = dir_path / "sdf.bin";
+        std::ofstream ofs_sdf(sdf_filepath, std::ios::binary);
+        if (!erl::common::SaveEigenMapToBinaryStream(ofs_sdf, sdf)) {
+            ROS_WARN("Failed to save sdf to %s", sdf_filepath.c_str());
+            res.success = false;
+            return false;
+        }
+
+        if (ans.compute_gradient) {
+            Eigen::Map<const Eigen::MatrixXd> gradients(
+                reinterpret_cast<const double *>(ans.gradients.data()),
+                ans.dim,
+                ans.signed_distances.size());
+            const auto gradients_filepath = dir_path / "gradients.bin";
+            std::ofstream ofs_grad(gradients_filepath, std::ios::binary);
+            if (!erl::common::SaveEigenMapToBinaryStream(ofs_grad, gradients)) {
+                ROS_WARN("Failed to save gradients to %s", gradients_filepath.c_str());
+                res.success = false;
+                return false;
+            }
+        }
+
+        if (!ans.variances.empty()) {
+            Eigen::Map<const Eigen::VectorXd> variances(
+                reinterpret_cast<const double *>(ans.variances.data()),
+                ans.variances.size());
+            const auto variances_filepath = dir_path / "variances.bin";
+            std::ofstream ofs_var(variances_filepath, std::ios::binary);
+            if (!erl::common::SaveEigenMapToBinaryStream(ofs_var, variances)) {
+                ROS_WARN("Failed to save variances to %s", variances_filepath.c_str());
+                res.success = false;
+                return false;
+            }
+        }
+
+        if (!ans.covariances.empty()) {
+            Eigen::Map<const Eigen::MatrixXd> covariances(
+                reinterpret_cast<const double *>(ans.covariances.data()),
+                ans.dim * (ans.dim + 1) / 2,
+                ans.signed_distances.size());
+            const auto covariances_filepath = dir_path / "covariances.bin";
+            std::ofstream ofs_cov(covariances_filepath, std::ios::binary);
+            if (!erl::common::SaveEigenMapToBinaryStream(ofs_cov, covariances)) {
+                ROS_WARN("Failed to save covariances to %s", covariances_filepath.c_str());
+                res.success = false;
+                return false;
+            }
+        }
+
+        return true;
     }
 
     void

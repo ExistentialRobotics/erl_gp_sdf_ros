@@ -1,8 +1,6 @@
 #include "erl_common/block_timer.hpp"
 #include "erl_common/eigen.hpp"
 #include "erl_common/yaml.hpp"
-#include "erl_geometry/abstract_occupancy_octree.hpp"
-#include "erl_geometry/abstract_occupancy_quadtree.hpp"
 #include "erl_geometry/depth_frame_3d.hpp"
 #include "erl_geometry/lidar_frame_2d.hpp"
 #include "erl_geometry/lidar_frame_3d.hpp"
@@ -15,19 +13,23 @@
 
 #include <geometry_msgs/Vector3.h>
 #include <nav_msgs/Odometry.h>
+#include <open3d/geometry/LineSet.h>
+#include <open3d/geometry/TriangleMesh.h>
+#include <open3d/io/LineSetIO.h>
+#include <open3d/io/TriangleMeshIO.h>
 #include <ros/ros.h>
+#include <ros/service_server.h>
+#include <ros/spinner.h>
 #include <rviz/default_plugin/point_cloud_transformers.h>
 #include <sensor_msgs/Image.h>
+#include <sensor_msgs/image_encodings.h>
 #include <sensor_msgs/LaserScan.h>
 #include <sensor_msgs/PointCloud2.h>
-#include <sensor_msgs/image_encodings.h>
 #include <std_msgs/Float64.h>
 #include <tf/transform_datatypes.h>
 #include <tf2_eigen/tf2_eigen.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_ros/transform_listener.h>
-
-#include <regex>
 
 using namespace erl::common;
 
@@ -59,12 +61,13 @@ ERL_PARSE_ENUM(ScanType, 3);
 
 struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     // setting class for the surface mapping. For example, to use
-    // erl::gp_sdf::GpOccSurfaceMapping<float, 2>, you should use its setting class
-    // erl::gp_sdf::GpOccSurfaceMapping<float, 2>::Setting.
+    // erl::gp_sdf::GpOccSurfaceMapping<float, 2>, you should use its setting
+    // class erl::gp_sdf::GpOccSurfaceMapping<float, 2>::Setting.
     std::string surface_mapping_setting_type = "";
     // path to the yaml file for the surface mapping setting
     std::string surface_mapping_setting_file = "";
-    // surface mapping class type. For example, erl::gp_sdf::GpOccSurfaceMapping<float, 2>.
+    // surface mapping class type. For example,
+    // erl::gp_sdf::GpOccSurfaceMapping<float, 2>.
     std::string surface_mapping_type = "";
     // path to the yaml file for the SDF mapping setting
     std::string sdf_mapping_setting_file = "";
@@ -85,8 +88,9 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     // can be "laser", "point_cloud", or "depth"
     ScanType scan_type = ScanType::Laser;
     // frame class of the scan. e.g. erl::geometry::LidarFrame3D<float>,
-    // erl::geometry::DepthFrame3D<float> for 3D scans. For 2D scans, the only option is
-    // erl::geometry::LidarFrame2D<float> or erl::geometry::LidarFrame2D<double>.
+    // erl::geometry::DepthFrame3D<float> for 3D scans. For 2D scans, the only
+    // option is erl::geometry::LidarFrame2D<float> or
+    // erl::geometry::LidarFrame2D<double>.
     std::string scan_frame_type = "";
     // path to the yaml file for the scan frame setting
     std::string scan_frame_setting_file = "";
@@ -100,7 +104,8 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     float depth_scale = 0.001f;
     // if true, publish the occupancy tree used by the surface mapping.
     bool publish_tree = false;
-    // if true, use binary format to publish the occupancy tree, which makes the message smaller.
+    // if true, use binary format to publish the occupancy tree, which makes the
+    // message smaller.
     bool publish_tree_binary = true;
     // frequency to publish the occupancy tree
     double publish_tree_frequency = 5.0;
@@ -122,6 +127,8 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     std::string save_map_service = "save_map";
     // the service to load the map
     std::string load_map_service = "load_map";
+    // the service to save mesh
+    std::string save_mesh_service = "save_mesh";
 
     ERL_REFLECT_SCHEMA(
         SdfMappingNodeConfig,
@@ -154,7 +161,8 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, query_time_topic),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, sdf_query_service),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_map_service),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, load_map_service));
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, load_map_service),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_mesh_service));
 
     bool
     PostDeserialization() override {
@@ -231,7 +239,9 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
             return false;
         }
         if (publish_surface_points && surface_points_topic.empty()) {
-            ROS_WARN("Publish surface points topic is empty but publish_surface_points is true");
+            ROS_WARN(
+                "Publish surface points topic is empty but "
+                "publish_surface_points is true");
             return false;
         }
         if (publish_surface_points && publish_surface_points_frequency <= 0.0) {
@@ -256,6 +266,10 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
         }
         if (load_map_service.empty()) {
             ROS_WARN("load_map_service is empty");
+            return false;
+        }
+        if (save_mesh_service.empty()) {
+            ROS_WARN("save_mesh_service is empty");
             return false;
         }
         return true;
@@ -298,6 +312,7 @@ class SdfMappingNode {
     ros::ServiceServer m_srv_query_sdf_;
     ros::ServiceServer m_srv_load_map_;
     ros::ServiceServer m_srv_save_map_;
+    ros::ServiceServer m_srv_save_mesh_;
     ros::Publisher m_pub_tree_;
     ros::Publisher m_pub_surface_points_;
     ros::Publisher m_pub_update_time_;
@@ -431,7 +446,7 @@ public:
                 ROS_INFO("Subscribing to %s as laser scan", m_setting_.scan_topic.c_str());
                 m_sub_scan_ = m_nh_.subscribe(
                     m_setting_.scan_topic,
-                    1,
+                    10,
                     &SdfMappingNode::CallbackLaserScan,
                     this);
                 break;
@@ -439,7 +454,7 @@ public:
                 ROS_INFO("Subscribing to %s as point cloud", m_setting_.scan_topic.c_str());
                 m_sub_scan_ = m_nh_.subscribe(
                     m_setting_.scan_topic,
-                    1,
+                    10,
                     &SdfMappingNode::CallbackPointCloud2,
                     this);
                 break;
@@ -447,7 +462,7 @@ public:
                 ROS_INFO("Subscribing to %s as depth image", m_setting_.scan_topic.c_str());
                 m_sub_scan_ = m_nh_.subscribe(
                     m_setting_.scan_topic,
-                    1,
+                    10,
                     &SdfMappingNode::CallbackDepthImage,
                     this);
                 break;
@@ -557,6 +572,10 @@ public:
         m_srv_save_map_ = m_nh_.advertiseService(
             m_setting_.save_map_service,
             &SdfMappingNode::CallbackSaveMap,
+            this);
+        m_srv_save_mesh_ = m_nh_.advertiseService(
+            m_setting_.save_mesh_service,
+            &SdfMappingNode::CallbackSaveMesh,
             this);
 
         // publish the occupancy tree used by the surface mapping
@@ -1091,7 +1110,8 @@ private:
             ERL_BLOCK_TIMER_MSG("Update SDF GPs");
             if (ok) { m_sdf_mapping_->UpdateGpSdf(time_budget_us - surf_mapping_time * 1000); }
         }
-        // bool success = m_sdf_mapping_->Update(rotation, translation, scan, are_points, in_local);
+        // bool success = m_sdf_mapping_->Update(rotation, translation, scan,
+        // are_points, in_local);
         auto t2 = ros::WallTime::now();
         m_msg_update_time_.data = (t2 - t1).toSec();
         m_pub_update_time_.publish(m_msg_update_time_);
@@ -1271,6 +1291,86 @@ private:
         return true;
     }
 
+    bool
+    CallbackSaveMesh(
+        erl_gp_sdf_msgs::SaveMap::Request &req,
+        erl_gp_sdf_msgs::SaveMap::Response &res) {
+        if (!m_sdf_mapping_) {
+            ROS_WARN("SDF mapping is not initialized");
+            res.success = false;
+            return false;
+        }
+        if (req.name.empty()) {
+            ROS_WARN("Mesh file name is empty");
+            res.success = false;
+            return false;
+        }
+        std::filesystem::path mesh_file = req.name;
+        mesh_file = std::filesystem::absolute(mesh_file);
+        std::filesystem::create_directories(mesh_file.parent_path());
+        std::vector<VectorD> vertices;
+        std::vector<Eigen::Vector<int, Dim>> faces;
+        {
+            auto lock = m_surface_mapping_->GetLockGuard();
+            try {
+                res.success = m_surface_mapping_->GetMesh(false, vertices, faces);
+            } catch (const std::exception &e) {
+                ROS_WARN("Failed to get mesh: %s", e.what());
+                res.success = false;
+                return false;
+            }
+        }
+
+        if (Dim == 2) {
+            open3d::geometry::LineSet line_set;
+            line_set.points_.resize(vertices.size());
+            for (size_t i = 0; i < vertices.size(); ++i) {
+                line_set.points_[i] = Eigen::Vector3d(
+                    static_cast<double>(vertices[i](0)),
+                    static_cast<double>(vertices[i](1)),
+                    0.0);
+            }
+            line_set.lines_.resize(faces.size());
+            for (size_t i = 0; i < faces.size(); ++i) {
+                line_set.lines_[i] =
+                    Eigen::Vector2i(static_cast<int>(faces[i](0)), static_cast<int>(faces[i](1)));
+            }
+            res.success &= open3d::io::WriteLineSetToPLY(req.name, line_set);
+        } else {
+            open3d::geometry::TriangleMesh mesh;
+            mesh.vertices_.resize(vertices.size());
+            for (size_t i = 0; i < vertices.size(); ++i) {
+                mesh.vertices_[i] = Eigen::Vector3d(
+                    static_cast<double>(vertices[i](0)),
+                    static_cast<double>(vertices[i](1)),
+                    static_cast<double>(vertices[i](2)));
+            }
+            mesh.triangles_.resize(faces.size());
+            for (size_t i = 0; i < faces.size(); ++i) {
+                mesh.triangles_[i] = Eigen::Vector3i(
+                    static_cast<int>(faces[i](0)),
+                    static_cast<int>(faces[i](1)),
+                    static_cast<int>(faces[i](2)));
+            }
+            constexpr bool write_ascii = false;
+            constexpr bool compressed = false;
+            constexpr bool write_vertex_normals = true;
+            constexpr bool write_vertex_colors = false;
+            constexpr bool write_triangle_uvs = false;
+            constexpr bool print_progress = false;
+            res.success &= open3d::io::WriteTriangleMeshToPLY(
+                req.name,
+                mesh,
+                write_ascii,
+                compressed,
+                write_vertex_normals,
+                write_vertex_colors,
+                write_triangle_uvs,
+                print_progress);
+        }
+        return true;
+    }
+
     void
     CallbackPublishTree(const ros::TimerEvent & /* event */) {
         if (!m_tree_) { return; }
@@ -1323,7 +1423,10 @@ template<typename Dtype, int Dim>
 int
 Spin(ros::NodeHandle &nh) {
     SdfMappingNode<Dtype, Dim> node(nh);
-    ros::spin();
+    // ros::spin();
+    ros::AsyncSpinner spinner(0);  // use all available threads
+    spinner.start();
+    ros::waitForShutdown();
     return 0;
 }
 

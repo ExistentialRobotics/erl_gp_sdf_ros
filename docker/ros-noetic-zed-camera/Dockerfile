@@ -9,15 +9,50 @@ ENV LANG=${LOCALE}
 ENV LANGUAGE=${LOCALE}
 ENV LC_ALL=${LOCALE}
 
-###########################
-# erl_common dependencies #
-###########################
 RUN cp /etc/apt/sources.list /etc/apt/sources.list.backup &&\
     if [ -n "$APT_MIRROR" ]; then \
     sed -i "s|http://archive.ubuntu.com/ubuntu/|$APT_MIRROR|g" /etc/apt/sources.list; \
     fi
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone && \
     DEBIAN_FRONTEND=noninteractive apt update && apt install -y locales && locale-gen en_US.UTF-8
+
+##############
+# ROS Noetic #
+##############
+RUN DEBIAN_FRONTEND=noninteractive apt update -y && apt install -y \
+    libgl1-mesa-glx \
+    x11-apps \
+    software-properties-common \
+    lsb-release \
+    vim \
+    apt-utils \
+    ca-certificates \
+    curl \
+    iproute2
+RUN sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list'
+RUN curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | DEBIAN_FRONTEND=noninteractive apt-key add -
+RUN DEBIAN_FRONTEND=noninteractive apt update -y
+RUN DEBIAN_FRONTEND=noninteractive apt install -y \
+    ros-noetic-desktop-full \
+    ros-noetic-geometry2 \
+    python3-rosdep \
+    python3-rosinstall \
+    python3-rosinstall-generator \
+    python3-wstool \
+    python3-catkin-tools \
+    python3-pip \
+    python3-numpy \
+    python3-toml \
+    python3-scipy \
+    python3-tqdm \
+    zstd \
+    libpng-dev \
+    libgomp1
+RUN rosdep init && rosdep fix-permissions && rosdep update
+
+###########################
+# erl_common dependencies #
+###########################
 RUN DEBIAN_FRONTEND=noninteractive apt install -y \
     sudo \
     apt-utils \
@@ -118,32 +153,6 @@ RUN git clone --recursive https://github.com/isl-org/Open3D.git && cd Open3D && 
     -DBUILD_BENCHMARKS=OFF && \
     make -j`nproc` && make install && \
     cd /root && rm -rf Open3D
-##############
-# ROS Noetic #
-##############
-RUN DEBIAN_FRONTEND=noninteractive apt update -y
-RUN DEBIAN_FRONTEND=noninteractive apt install -y ubuntu-desktop-minimal \
-    software-properties-common lsb-release vim locales apt-utils ca-certificates curl iproute2
-RUN sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list'
-RUN curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | DEBIAN_FRONTEND=noninteractive apt-key add -
-RUN DEBIAN_FRONTEND=noninteractive apt update -y
-RUN DEBIAN_FRONTEND=noninteractive apt install -y \
-    ros-noetic-desktop-full \
-    ros-noetic-geometry2 \
-    python3-rosdep \
-    python3-rosinstall \
-    python3-rosinstall-generator \
-    python3-wstool \
-    python3-catkin-tools \
-    python3-pip \
-    python3-numpy \
-    python3-toml \
-    python3-scipy \
-    python3-tqdm \
-    zstd \
-    libpng-dev \
-    libgomp1
-RUN rosdep init && rosdep fix-permissions && rosdep update
 
 ###############################
 # erl_gp_sdf_ros dependencies #
@@ -192,6 +201,30 @@ RUN mkdir -p /opt/zed_camera_ws/src && \
     catkin_make -DCMAKE_BUILD_TYPE=Release
 COPY common.yaml /opt/zed_camera_ws/src/zed-ros-wrapper/zed_wrapper/params/common.yaml
 ENV DISABLE_ROS1_EOL_WARNINGS=1
+
+###############
+# Python venv #
+###############
+
+RUN DEBIAN_FRONTEND=noninteractive apt install -y python3-venv
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv ${VIRTUAL_ENV}
+ENV PATH="${VIRTUAL_ENV}/bin:$PATH"
+RUN python3 -m pip install -U pip
+RUN python3 -m pip install --no-cache-dir black open3d transforms3d scikit-image ruamel.yaml trimesh shapely
+ENV GOMP_SPINCOUNT=1
+ENV PYTHONPATH=/opt/venv/lib/python3.8/site-packages:/usr/lib/python3/dist-packages
+RUN printenv | grep -E '^(PATH|PYTHONPATH|VIRTUAL_ENV|GOMP_SPINCOUNT)=' | sed 's/^\(.*\)=\(.*\)$/export \1="\2"/' >> /etc/environment
+
+##############
+# SSH server #
+##############
+
+RUN DEBIAN_FRONTEND=noninteractive apt install -y zsh python3-venv openssh-server
+RUN echo "Port 8022" >> /etc/ssh/sshd_config && \
+    echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config && \
+    echo "X11Forwarding yes" >> /etc/ssh/sshd_config && \
+    echo "X11UseLocalhost no" >> /etc/ssh/sshd_config
 
 ############
 # Clean up #

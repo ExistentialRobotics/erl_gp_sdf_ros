@@ -13,10 +13,16 @@ local_bhm:
     kernel_setting_type: erl::covariance::Covariance<float>::Setting
     kernel:
         scale_mix: 1
-    surface_log_odds: 0.0
-    surface_log_odds_init_count: 1
+    # min_dataset_size: 10
+    # min_dataset_hit_size: 5
+    # hit_point_buffer_size: 100
+    # ray_buffer_size: 1024
+    surface_grid_size: 5
+    surface_log_odds: 5.0
+    surface_log_odds_lr: 0.2
+    surface_log_odds_num_points: 32
     surface_log_odds_min: -5.0
-    surface_log_odds_max: 20.0
+    surface_log_odds_max: 40.0
     auto_surface_log_odds: true
     include_neighbor_voxels: true
     faster_prediction: true
@@ -39,16 +45,17 @@ update_map:
     surface_step_size: 0.001
     include_neighbor_bhm: true
     max_num_points: 50000
+    max_update_dist: -1
     max_adjust_tries: 1
     var_scale: 0.1
     var_max: 1.5
 scaling: 1.0
 bhm_depth: 15
 weight_sync: true
-sync_method: "copy"  # copy, mean, or bayesian
+sync_method: "copy" # copy, mean, or bayesian
 bhm_overlap: 0.3
 bhm_overlap_sync: 1
 build_bhm_on_hit: true
-unknown_log_odds: 100.0  # unknown space log-odds
+unknown_log_odds: 100.0 # unknown space log-odds
 test_knn: 1
-test_batch_size: 1000
+test_batch_size: 100

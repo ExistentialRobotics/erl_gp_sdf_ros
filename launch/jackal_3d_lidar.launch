@@ -3,6 +3,7 @@
     <arg name="precision" default="float" />
     <!-- Options: float, double -->
     <arg name="surf_mapping_method" default="bayesian_hilbert" />
+    <arg name="world_frame" default="odom" />
     <!-- Options: gp_occ, bayesian_hilbert -->
     <arg name="visualize_sdf" default="true" />
     <!-- whether to launch rviz for visualization -->
@@ -14,7 +15,11 @@
 
     <arg name="bag_file" default="$(env HOME)/Data/jackal_lidar_3d/jackal2_map_Lab.bag" />
     <arg name="rosbag_play_rate" default="0.25" />
+    <arg name="rosbag_play_start_time" default="0.0" />
+    <arg name="rosbag_play_duration" default="10000.0" />
     <arg name="play_rosbag" default="true" />
+
+    <!-- <param name="use_sim_time" value="true" /> -->
 
     <node pkg="tf2_ros" type="static_transform_publisher" name="map_odom_transformer" args="0 0 0 0 0 0 1 map odom" />
     <node pkg="erl_gp_sdf_ros" type="sdf_mapping_node" name="sdf_mapping_node" output="screen">
@@ -25,11 +30,11 @@
         <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/jackal_3d/$(arg surf_mapping_method)_surf_mapping_lidar_$(arg precision).yaml" />
         <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/jackal_3d/$(arg surf_mapping_method)_sdf_mapping_lidar_$(arg precision).yaml" />
         <param name="use_odom" value="false" />
-        <param name="odom_topic" value="/$(arg robot_name)/dlo/odom_node/odom" />
+        <param name="odom_topic" value="/dlio/odom_node/odom" />
         <param name="odom_msg_type" value="odometry" />
-        <param name="world_frame" value="map" />
+        <param name="world_frame" value="$(arg world_frame)" />
         <param name="sensor_frame" value="$(arg robot_name)/os_sensor" />
-        <param name="scan_topic" value="/$(arg robot_name)/ouster/points" />
+        <param name="scan_topic" value="/dlio_odom/deskewed_pc" />
         <param name="scan_type" value="point_cloud" />
         <param name="scan_frame_setting_file" value="$(find erl_gp_sdf_ros)/config/jackal_3d/lidar_frame_3d_360.yaml" />
         <param name="scan_stride" value="1" />
@@ -41,21 +46,25 @@
 
     <group if="$(arg visualize_sdf)">
         <node pkg="erl_gp_sdf_ros" type="sdf_visualization_node" name="sdf_visualization_node" output="screen">
-            <param name="resolution" value="0.02" />
-            <param name="x_cells" value="101" />
-            <param name="y_cells" value="101" />
-            <param name="x" value="0.0" />
-            <param name="y" value="0.0" />
-            <param name="z" value="0.0" />
+            <param name="resolution" value="0.1" />
+            <param name="x_cells" value="201" />
+            <param name="y_cells" value="71" />
+            <param name="x" value="-3.3" />
+            <param name="y" value="1.7" />
+            <param name="z" value="0.75" />
+            <!-- <param name="x" value="-0.3" />
+            <param name="y" value="0.7" />
+            <param name="z" value="0.75" /> -->
             <param name="publish_gradient" value="true" />
             <param name="publish_sdf_variance" value="true" />
-            <param name="publish_gradient_variance" value="true" />
+            <param name="publish_gradient_variance" value="false" />
             <param name="publish_covariance" value="false" />
             <param name="publish_grid_map" value="true" />
             <param name="publish_point_cloud" value="false" />
-            <param name="publish_rate" value="10.0" />
-            <param name="attached_to_frame" value="true" />
-            <param name="world_frame" value="map" />
+            <param name="publish_rate" value="4.0" />
+            <!-- change to true if you want to visualize SDF around the robot -->
+            <param name="attached_to_frame" value="false" />
+            <param name="world_frame" value="$(arg world_frame)" />
             <param name="attached_frame" value="$(arg robot_name)/os_sensor" />
             <param name="sdf_query_service" value="/sdf_mapping_node/sdf_query" />
             <param name="map_topic" value="sdf_grid_map" />
@@ -72,6 +81,7 @@
     </group>
 
     <group if="$(arg play_rosbag)">
-        <node pkg="rosbag" type="play" name="rosbag_play" args="$(arg bag_file) --rate=$(arg rosbag_play_rate) --clock" output="screen"/>
+        <node pkg="rosbag" type="play" name="rosbag_play" args="$(arg bag_file) --rate=$(arg rosbag_play_rate) --start=$(arg rosbag_play_start_time)  --duration=$(arg rosbag_play_duration)
+            --clock" output="screen"/>
     </group>
 </launch>

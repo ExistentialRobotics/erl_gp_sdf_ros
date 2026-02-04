@@ -1,49 +1,17 @@
+__base__: ../common/sdf_mapping_float.yaml
 test_query:
-    default_invalid_sdf: -1
     max_test_valid_distance_var: 0.02
-    search_area_half_size: 4
+    search_area_half_size: 15
     num_neighbor_gps: 8
-    use_smallest: true
-    compute_gradient: true # whether to compute gradient
-    compute_gradient_variance: false # whether to compute gradient variance
-    compute_covariance: false # whether to compute covariance
-    use_gp_covariance: false
-    retrain_outdated: true # whether to retrain the trained but outdated GPs
-    max_num_retrain_gps: 100 # max number of retrained GPs before a test query
-    use_global_buffer: true # whether to use the global buffer for test queries
-num_threads: 64
-update_hz: 60
-sensor_noise: 0.01
-gp_sdf_area_scale: 4 # should not be too small
-max_valid_gradient_var: 0.1
-invalid_position_var: 2.0
+    max_num_retrain_gps: 500
+update_hz: 10
+min_num_gps_to_update: 512
+gp_sdf_area_scale: 2.0
 sdf_gp:
-    sign_method: "external" # "sign_gp", "normal_gp", "external", "hybrid", "none"
-    hybrid_sign_methods: ["sign_gp", "external"]
-    hybrid_sign_threshold: 0.2
-    normal_scale: 100.0
-    softmin_temperature: 10.0
-    sign_gp_offset_distance: 0.0 # -0.2, when it is 0.0, the sign GP relies on the gradients only
-    edf_gp_offset_distance: 0.0
-    sign_gp:
-        kernel_type: erl::covariance::Matern32<float, 3>
-        kernel_setting_type: erl::covariance::Covariance<float>::Setting
-        kernel:
-            x_dim: 3
-            scale: 0.5
-            scale_mix: 1
-            weights: []
-        max_num_samples: 96 # max dataset size
-        no_gradient_observation: false
+    sign_method: "external"
     edf_gp:
-        kernel_type: erl::covariance::Matern32<float, 3>
-        kernel_setting_type: erl::covariance::Covariance<float>::Setting
+        kernel_type: erl::covariance::RadialBiasFunction<float, 3>
         kernel:
             x_dim: 3
-            scale: 0.3
-            scale_mix: 1
-            weights: []
-        log_lambda: 40
-        duplicate_epsilon: 0.005
-        max_num_samples: 128 # max dataset size
-        no_gradient_observation: true
+        log_lambda: 300
+        max_num_samples: 192 # max dataset size
