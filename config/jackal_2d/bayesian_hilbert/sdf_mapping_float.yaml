@@ -2,11 +2,11 @@ __base__: ../../common/sdf_mapping_float.yaml
 test_query:
     default_invalid_sdf: -1  # default SDF value for invalid queries
     max_test_valid_distance_var: 1
-    search_area_half_size: 4
+    search_area_half_size: 10
     num_neighbor_gps: 4
     max_num_retrain_gps: 100
-min_num_gps_to_update: 256
-gp_sdf_area_scale: 5  # should be large enough
+min_num_gps_to_update: 512
+gp_sdf_area_scale: 3  # should be large enough
 max_valid_gradient_var: 0.1
 invalid_position_var: 0.25
 sdf_gp:
@@ -15,5 +15,5 @@ sdf_gp:
         kernel_type: erl::covariance::Matern32<float, 2>
         kernel:
             x_dim: 2
-        log_lambda: 20
+        log_lambda: 70
         max_num_samples: 128   # 256

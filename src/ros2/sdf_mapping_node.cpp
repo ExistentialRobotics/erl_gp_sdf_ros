@@ -853,6 +853,10 @@ private:
             // recover the dimension of rotation and translation
             return {true, Rotation(rotation), Translation(translation)};
         }
+        if (m_setting_.world_frame == m_setting_.sensor_frame) {
+            // identity transform
+            return {true, Rotation::Identity(), Translation::Zero()};
+        }
         // get the latest transform from the tf buffer
         geometry_msgs::msg::TransformStamped transform_stamped;
         try {

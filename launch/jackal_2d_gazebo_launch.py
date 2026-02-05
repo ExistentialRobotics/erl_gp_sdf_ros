@@ -241,11 +241,11 @@ def generate_launch_description():
 
             parameters=[{
 
-                "resolution": 0.01,
+                "resolution": 0.1,
 
-                "x_cells": 600,
+                "x_cells": 100,
 
-                "y_cells": 600,
+                "y_cells": 100,
 
                 "x": 0.0, "y": 0.0, "z": 0.0,
 
