@@ -1,4 +1,4 @@
-__base__: ../common/sdf_mapping_float.yaml
+__base__: ../../common/sdf_mapping_float.yaml
 test_query:
     default_invalid_sdf: -1  # default SDF value for invalid queries
     max_test_valid_distance_var: 1

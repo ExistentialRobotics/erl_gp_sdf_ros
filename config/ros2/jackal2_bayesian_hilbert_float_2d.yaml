@@ -9,8 +9,8 @@
         odom_msg_type: transform_stamped # "odometry" or "transform_stamped"
         odom_queue_size: 200
         world_frame: odom
-        sensor_frame: lidar3d_0_laser
-        scan_topic.path: /jackal2/sensors/lidar3d_0/scan
+        sensor_frame: odom
+        scan_topic.path: /scan
         scan_type: laser # "laser", "point_cloud", or "depth"
         scan_frame_type: erl::geometry::LidarFrame2D<float>
         scan_frame_setting_file: config/sensors/lidar_frame_2d.yaml

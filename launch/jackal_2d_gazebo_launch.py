@@ -84,7 +84,7 @@ def generate_launch_description():
 
     sensor_frame_arg = DeclareLaunchArgument(
 
-        "sensor_frame", default_value=f"lidar3d_0_laser",
+        "sensor_frame", default_value=f"odom",
 
         description="Sensor frame ID published in TF (prefix with robot if your TF tree uses it)"
 
@@ -120,14 +120,14 @@ def generate_launch_description():
 
         surf_mapping_config = os.path.join(
 
-            erl_gp_sdf_share, "config", "gazebo", f"{surf_mapping_method}/surf_mapping_{precision}.yaml"
-
+            # erl_gp_sdf_share, "config", "gazebo", f"{surf_mapping_method}/surf_mapping_{precision}.yaml"
+            pkg_share, "config", "jackal_2d", f"{surf_mapping_method}/surf_mapping_{precision}.yaml"
         )
 
         sdf_mapping_config = os.path.join(
 
-            erl_gp_sdf_share, "config", "gazebo", f"{surf_mapping_method}/sdf_mapping_{precision}.yaml"
-
+            # erl_gp_sdf_share, "config", "gazebo", f"{surf_mapping_method}/sdf_mapping_{precision}.yaml"
+            pkg_share, "config", "jackal_2d", f"{surf_mapping_method}/sdf_mapping_{precision}.yaml"
         )
 
         scan_frame_config = os.path.join(pkg_share, "config", "ros2", "lidar_frame_2d_gazebo.yaml")
@@ -243,9 +243,9 @@ def generate_launch_description():
 
                 "resolution": 0.01,
 
-                "x_cells": 60,
+                "x_cells": 600,
 
-                "y_cells": 60,
+                "y_cells": 600,
 
                 "x": 0.0, "y": 0.0, "z": 0.0,
 

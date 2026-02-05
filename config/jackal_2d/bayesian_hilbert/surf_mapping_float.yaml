@@ -1,4 +1,4 @@
-__base__: ../common/bayesian_hilbert_surf_mapping_float.yaml
+__base__: ../../common/bayesian_hilbert_surf_mapping_float.yaml
 local_bhm:
     bhm:
         min_distance: 0.0
