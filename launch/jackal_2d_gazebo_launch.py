@@ -66,14 +66,6 @@ def generate_launch_description():
 
     )
 
-    robot_name_arg = DeclareLaunchArgument(
-
-        "robot_name", default_value="jackal2",
-
-        description="Robot name used in frame/topic strings (usually same as namespace)"
-
-    )
-
     setting_type_arg = DeclareLaunchArgument(
 
         "setting_type", default_value="lidar",
@@ -92,7 +84,7 @@ def generate_launch_description():
 
     sensor_frame_arg = DeclareLaunchArgument(
 
-        "sensor_frame", default_value=f"jackal2/base_link",
+        "sensor_frame", default_value=f"lidar3d_0_laser",
 
         description="Sensor frame ID published in TF (prefix with robot if your TF tree uses it)"
 
@@ -114,10 +106,6 @@ def generate_launch_description():
 
         surf_mapping_method = context.launch_configurations["surf_mapping_method"]
 
-        robot = context.launch_configurations["robot_name"]
-
-        setting_type = context.launch_configurations["setting_type"]
-
         world_frame = context.launch_configurations["world_frame"]
 
         sensor_frame = context.launch_configurations["sensor_frame"]
@@ -128,34 +116,30 @@ def generate_launch_description():
 
         erl_gp_sdf_share =  get_package_share_directory("erl_gp_sdf")
 
-
-
-        config_file = os.path.join(pkg_share, "config", "ros2", f"{surf_mapping_method}_{precision}_2d.yaml")
+        config_file = os.path.join(pkg_share, "config", "ros2", f"{ns}_{surf_mapping_method}_{precision}_2d.yaml")
 
         surf_mapping_config = os.path.join(
 
-            erl_gp_sdf_share, "config", "gazebo", f"{surf_mapping_method}_surf_mapping_{precision}.yaml"
+            erl_gp_sdf_share, "config", "gazebo", f"{surf_mapping_method}/surf_mapping_{precision}.yaml"
 
         )
 
         sdf_mapping_config = os.path.join(
 
-            erl_gp_sdf_share, "config", "gazebo", f"{surf_mapping_method}_sdf_mapping_{precision}.yaml"
+            erl_gp_sdf_share, "config", "gazebo", f"{surf_mapping_method}/sdf_mapping_{precision}.yaml"
 
         )
 
-        scan_frame_config = os.path.join(pkg_share, "config", "lidar_frame_2d_gazebo.yaml")
+        scan_frame_config = os.path.join(pkg_share, "config", "ros2", "lidar_frame_2d_gazebo.yaml")
         
 
-        odom_topic = f"/dlio/odom_node/odom"
+        # odom_topic = f"/dlio/odom_node/odom"
 
-        scan_topic = f"/scan"
-
-        config_file = os.path.join(pkg_share, "config", "ros2", f"{surf_mapping_method}_{precision}_2d.yaml")
+        # scan_topic = f"/scan"
 
         surf_mapping_config = os.path.join(
 
-            erl_gp_sdf_share, "config", "gazebo", f"{surf_mapping_method}_surf_mapping_{precision}.yaml"
+            erl_gp_sdf_share, "config", "gazebo", f"{surf_mapping_method}/surf_mapping_{precision}.yaml"
 
         )
 
@@ -189,7 +173,7 @@ def generate_launch_description():
 
                         "use_odom": False,
 
-                        "odom_topic.path": odom_topic,
+                        # "odom_topic.path": odom_topic,
 
                         "odom_msg_type": "odometry",
 
@@ -197,7 +181,7 @@ def generate_launch_description():
 
                         "sensor_frame": sensor_frame,
 
-                        "scan_topic.path": scan_topic,
+                        # "scan_topic.path": scan_topic,
 
                         "scan_type": "laser",
 
@@ -235,8 +219,6 @@ def generate_launch_description():
 
         ns = context.launch_configurations["namespace"]
 
-        robot = context.launch_configurations["robot_name"]
-
         world_frame = context.launch_configurations["world_frame"]
 
         sensor_frame = context.launch_configurations["sensor_frame"]
@@ -259,11 +241,11 @@ def generate_launch_description():
 
             parameters=[{
 
-                "resolution": 0.05,
+                "resolution": 0.01,
 
-                "x_cells": 160,
+                "x_cells": 60,
 
-                "y_cells": 160,
+                "y_cells": 60,
 
                 "x": 0.0, "y": 0.0, "z": 0.0,
 
@@ -281,7 +263,7 @@ def generate_launch_description():
 
                 "publish_rate": 20.0,
 
-                "attached_to_frame": True,
+                "attached_to_frame": False,
 
                 "world_frame": world_frame,
 
@@ -307,11 +289,9 @@ def generate_launch_description():
 
         ns = context.launch_configurations["namespace"]
 
-        robot = context.launch_configurations["robot_name"]
-
         pkg_share = get_package_share_directory("erl_gp_sdf_ros")
 
-        rviz_config = os.path.join(pkg_share, "rviz2", f"{robot}_3d_lidar_gazebo.rviz")
+        rviz_config = os.path.join(pkg_share, "rviz2", f"{ns}_3d_lidar_gazebo.rviz")
 
 
 
@@ -360,8 +340,6 @@ def generate_launch_description():
         visualize_sdf_arg,
 
         open_rviz_arg,
-
-        robot_name_arg,
 
         setting_type_arg,
 

@@ -163,6 +163,8 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     PostDeserialization() override {
         auto logger = g_curr_node->get_logger();
 
+        // RCLCPP_INFO(logger, "Loaded SdfMappingNodeConfig:\n%s", AsYamlString().c_str());
+
         if (surface_mapping_setting_type.empty()) {
             RCLCPP_WARN(logger, "You must set ~surface_mapping_setting_type");
             return false;
