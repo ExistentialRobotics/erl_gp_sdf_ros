@@ -3,7 +3,6 @@
 #include "erl_gp_sdf_msgs/SaveMap.h"
 #include "erl_gp_sdf_msgs/SdfQuery.h"
 
-#include <Eigen/src/Core/util/Constants.h>
 #include <geometry_msgs/Vector3.h>
 #include <grid_map_msgs/GridMap.h>
 #include <grid_map_ros/grid_map_ros.hpp>
@@ -154,11 +153,8 @@ class SdfVisualizationNode {
     ros::ServiceServer m_srv_save_query_;
     ros::Timer m_timer_;
     tf2_ros::Buffer m_tf_buffer_;
-    tf2_ros::TransformListener m_tf_listener_{m_tf_buffer_};
-    tf2_ros::TransformBroadcaster m_tf_broadcaster_;
     std::vector<geometry_msgs::Vector3> m_query_points_;
     ros::Time m_stamp_;
-    geometry_msgs::TransformStamped m_sdf_frame_pose_;
     grid_map::GridMap m_grid_map_;
     sensor_msgs::PointCloud2 m_cloud_;
 
@@ -186,16 +182,6 @@ public:
             m_setting_.save_query_service,
             &SdfVisualizationNode::CallbackSaveQuery,
             this);
-        m_grid_map_.setFrameId(m_setting_.attached_frame);
-        m_sdf_frame_pose_.header.frame_id = m_setting_.world_frame;
-        m_sdf_frame_pose_.child_frame_id = m_setting_.attached_frame;
-        m_sdf_frame_pose_.transform.translation.x = 0;
-        m_sdf_frame_pose_.transform.translation.y = 0;
-        m_sdf_frame_pose_.transform.translation.z = m_setting_.z;
-        m_sdf_frame_pose_.transform.rotation.x = 0.0;
-        m_sdf_frame_pose_.transform.rotation.y = 0.0;
-        m_sdf_frame_pose_.transform.rotation.z = 0.0;
-        m_sdf_frame_pose_.transform.rotation.w = 1.0;
         m_grid_map_.setGeometry(
             grid_map::Length(
                 static_cast<double>(m_setting_.x_cells) * m_setting_.resolution,
@@ -204,8 +190,10 @@ public:
             grid_map::Position(m_setting_.x, m_setting_.y));
         if (m_setting_.attached_to_frame) {
             m_cloud_.header.frame_id = m_setting_.attached_frame;
+            m_grid_map_.setFrameId(m_setting_.attached_frame);
         } else {
             m_cloud_.header.frame_id = m_setting_.world_frame;
+            m_grid_map_.setFrameId(m_setting_.world_frame);
         }
         m_cloud_.header.seq = -1;
         m_cloud_.height = 1;
@@ -318,10 +306,6 @@ private:
             grid_map_msgs::GridMap msg;
             grid_map::GridMapRosConverter::toMessage(m_grid_map_, msg);
             m_pub_map_.publish(msg);
-            if (!m_setting_.attached_to_frame) {  // publish the sdf frame tf
-                m_sdf_frame_pose_.header.stamp = m_stamp_;
-                m_tf_broadcaster_.sendTransform(m_sdf_frame_pose_);
-            }
         }
 
         if (m_setting_.publish_point_cloud) {
@@ -411,6 +395,7 @@ private:
             }
         }
 
+        res.success = true;
         return true;
     }
 

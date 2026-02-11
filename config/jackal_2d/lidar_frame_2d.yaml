@@ -1,0 +1,9 @@
+valid_range_min: 0.2
+valid_range_max: 10
+angle_min: -3.14159
+angle_max: 3.14159
+num_rays: 720
+discontinuity_detection: false
+discontinuity_factor: 10
+rolling_diff_discount: 0.9
+min_partition_size: 5

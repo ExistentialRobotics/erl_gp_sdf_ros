@@ -1,8 +1,8 @@
-__base__: ../common/bayesian_hilbert_surf_mapping_float.yaml
+__base__: ../../common/bayesian_hilbert_surf_mapping_float.yaml
 local_bhm:
     bhm:
-        min_distance: 0.9
-        max_distance: 6.0
+        min_distance: 0.4
+        max_distance: 5.0
         sampling_area_scale: 2.5
         free_points_per_meter: 3
         init_mu: 5.0
@@ -10,7 +10,7 @@ local_bhm:
     kernel_type: erl::covariance::RadialBiasFunction<float, 3>
     kernel:
         x_dim: 3
-        scale: 0.02
+        scale: 0.029
         scale_mix: 1
         weights: [ ]
     min_dataset_size: 30
@@ -31,22 +31,22 @@ ray_selector:
         - [ 0, 1, 0, 0 ]
         - [ 0, 0, 1, 0 ]
 tree:
-    resolution: 0.1
+    resolution: 0.2
     tree_depth: 10
     log_odd_min: -10
     log_odd_max: 100
-    log_odd_hit: 0.85
-    log_odd_miss: -0.3
-    log_odd_occ_threshold: 10
+    log_odd_hit: 0.9
+    log_odd_miss: -0.05
+    log_odd_occ_threshold: 0
 update_map:
     method: 2
-    max_update_dist: 4.0
+    max_update_dist: 5.0
     max_num_bhm: 1000
     max_num_voxels: 50000
 filter_points: true
-filter_points_min_z_world: -0.05
-filter_points_max_z_world: 10.0
+filter_points_min_z_world: -0.1
+filter_points_max_z_world: 3.0
 scaling: 1.0
 bhm_depth: 9
-hinged_grid_size: 7
-bhm_test_margin: 0.03
+hinged_grid_size: 9
+bhm_test_margin: 0.05

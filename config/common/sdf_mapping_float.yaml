@@ -49,7 +49,6 @@ sdf_gp:
             scale: 0.043
             scale_mix: 1
         log_lambda: 25 # larger more accurate but less numerically stable
-        duplicate_epsilon: 0.0
         use_exp_bias: true
         max_num_samples: 128 # max dataset size
         no_gradient_observation: true

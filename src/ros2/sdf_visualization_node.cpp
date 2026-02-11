@@ -1,4 +1,5 @@
 #include "erl_common/ros2_topic_params.hpp"
+#include "erl_gp_sdf_msgs/srv/save_map.hpp"
 #include "erl_gp_sdf_msgs/srv/sdf_query.hpp"
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -58,6 +59,8 @@ struct SdfVisNodeConfig : public Yamlable<SdfVisNodeConfig> {
     Ros2TopicParams map_topic{"sdf_grid_map"};
     // the topic to publish the point cloud.
     Ros2TopicParams point_cloud_topic{"sdf_point_cloud"};
+    // save query service
+    Ros2TopicParams save_query_service{"sdf_save_query", "services"};
 
     ERL_REFLECT_SCHEMA(
         SdfVisNodeConfig,
@@ -79,7 +82,8 @@ struct SdfVisNodeConfig : public Yamlable<SdfVisNodeConfig> {
         ERL_REFLECT_MEMBER(SdfVisNodeConfig, world_frame),
         ERL_REFLECT_MEMBER(SdfVisNodeConfig, sdf_query_service),
         ERL_REFLECT_MEMBER(SdfVisNodeConfig, map_topic),
-        ERL_REFLECT_MEMBER(SdfVisNodeConfig, point_cloud_topic));
+        ERL_REFLECT_MEMBER(SdfVisNodeConfig, point_cloud_topic),
+        ERL_REFLECT_MEMBER(SdfVisNodeConfig, save_query_service));
 
     bool
     PostDeserialization() override {
@@ -137,6 +141,10 @@ struct SdfVisNodeConfig : public Yamlable<SdfVisNodeConfig> {
             RCLCPP_WARN(logger, "Point cloud topic path is empty");
             return false;
         }
+        if (save_query_service.path.empty()) {
+            RCLCPP_WARN(logger, "save_query_service is empty");
+            return false;
+        }
         return true;
     }
 };
@@ -146,13 +154,11 @@ class SdfVisualizatioNode : public rclcpp::Node {
     rclcpp::Client<erl_gp_sdf_msgs::srv::SdfQuery>::SharedPtr m_sdf_client_;
     rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr m_pub_map_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr m_pub_pcd_;
+    rclcpp::Service<erl_gp_sdf_msgs::srv::SaveMap>::SharedPtr m_srv_save_query_;
     rclcpp::TimerBase::SharedPtr m_timer_;
     std::shared_ptr<tf2_ros::Buffer> m_tf_buffer_;
-    std::shared_ptr<tf2_ros::TransformListener> m_tf_listener_;
-    std::shared_ptr<tf2_ros::TransformBroadcaster> m_tf_broadcaster_;
     std::vector<geometry_msgs::msg::Vector3> m_query_points_;
     rclcpp::Time m_stamp_;
-    geometry_msgs::msg::TransformStamped m_sdf_frame_pose_;
     grid_map::GridMap m_grid_map_;
     sensor_msgs::msg::PointCloud2 m_cloud_;
     std::atomic_bool m_last_request_responded_ = true;
@@ -160,9 +166,7 @@ class SdfVisualizatioNode : public rclcpp::Node {
 public:
     SdfVisualizatioNode()
         : Node("sdf_visualization_node"),
-          m_tf_buffer_(std::make_shared<tf2_ros::Buffer>(this->get_clock())),
-          m_tf_listener_(std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer_)),
-          m_tf_broadcaster_(std::make_shared<tf2_ros::TransformBroadcaster>(this)) {
+          m_tf_buffer_(std::make_shared<tf2_ros::Buffer>(this->get_clock())) {
 
         g_curr_node = this;
 
@@ -180,10 +184,26 @@ public:
         m_sdf_client_ = this->create_client<erl_gp_sdf_msgs::srv::SdfQuery>(
             m_setting_.sdf_query_service.path,
             m_setting_.sdf_query_service.GetQoS().get_rmw_qos_profile());
+            m_srv_save_query_ = this->create_service<erl_gp_sdf_msgs::srv::SaveMap>(
+            m_setting_.save_query_service.path,
+            std::bind(
+                &SdfVisualizatioNode::CallbackSaveQuery,
+                this,
+                std::placeholders::_1,
+                std::placeholders::_2),
+            m_setting_.save_query_service.GetQoS().get_rmw_qos_profile());
 #else
         m_sdf_client_ = this->create_client<erl_gp_sdf_msgs::srv::SdfQuery>(
             m_setting_.sdf_query_service.path,
             m_setting_.sdf_query_service.GetQoS());
+        m_srv_save_query_ = this->create_service<erl_gp_sdf_msgs::srv::SaveMap>(
+            m_setting_.save_query_service.path,
+            std::bind(
+                &SdfVisualizatioNode::CallbackSaveQuery,
+                this,
+                std::placeholders::_1,
+                std::placeholders::_2),
+            m_setting_.save_query_service.GetQoS());
 #endif
         if (m_setting_.publish_grid_map) {
             m_pub_map_ = this->create_publisher<grid_map_msgs::msg::GridMap>(
@@ -195,16 +215,6 @@ public:
                 m_setting_.point_cloud_topic.path,
                 m_setting_.point_cloud_topic.GetQoS());
         }
-        m_grid_map_.setFrameId(m_setting_.attached_frame);
-        m_sdf_frame_pose_.header.frame_id = m_setting_.world_frame;
-        m_sdf_frame_pose_.child_frame_id = m_setting_.attached_frame;
-        m_sdf_frame_pose_.transform.translation.x = 0;
-        m_sdf_frame_pose_.transform.translation.y = 0;
-        m_sdf_frame_pose_.transform.translation.z = m_setting_.z;
-        m_sdf_frame_pose_.transform.rotation.x = 0.0;
-        m_sdf_frame_pose_.transform.rotation.y = 0.0;
-        m_sdf_frame_pose_.transform.rotation.z = 0.0;
-        m_sdf_frame_pose_.transform.rotation.w = 1.0;
         m_grid_map_.setGeometry(
             grid_map::Length(
                 static_cast<double>(m_setting_.x_cells) * m_setting_.resolution,
@@ -213,8 +223,10 @@ public:
             grid_map::Position(m_setting_.x, m_setting_.y));
         if (m_setting_.attached_to_frame) {
             m_cloud_.header.frame_id = m_setting_.attached_frame;
+            m_grid_map_.setFrameId(m_setting_.attached_frame);
         } else {
             m_cloud_.header.frame_id = m_setting_.world_frame;
+            m_grid_map_.setFrameId(m_setting_.world_frame);
         }
         m_cloud_.height = 1;
         m_cloud_.is_bigendian = false;
@@ -253,18 +265,19 @@ private:
             m_setting_.y_cells);
     }
 
-    void
-    CallbackTimer() {
+    erl_gp_sdf_msgs::srv::SdfQuery::Request::SharedPtr
+    MakeSdfQueryRequest() {
+
         auto logger = this->get_logger();
 
         if (!m_sdf_client_->service_is_ready()) {
             RCLCPP_WARN(logger, "Service %s is not ready", m_sdf_client_->get_service_name());
-            return;
+            return nullptr;
         }
 
         if (!m_last_request_responded_.load()) {
             RCLCPP_WARN(logger, "Last request is still pending, skipping this cycle");
-            return;
+            return nullptr;
         }
 
         auto request = std::make_shared<erl_gp_sdf_msgs::srv::SdfQuery::Request>();
@@ -277,7 +290,7 @@ private:
                     tf2::TimePointZero);
             } catch (tf2::TransformException &ex) {
                 RCLCPP_WARN(logger, ex.what());
-                return;
+                return nullptr;
             }
             request->query_points.clear();
             request->query_points.reserve(m_query_points_.size());
@@ -297,16 +310,23 @@ private:
             m_stamp_ = this->now();
         }
 
-        auto callback =
-            [this](rclcpp::Client<erl_gp_sdf_msgs::srv::SdfQuery>::SharedFutureWithRequest future) {
-                this->ResponseHandler(std::move(future));
-            };
-        m_last_request_responded_.store(false);
-        auto result_future = m_sdf_client_->async_send_request(request, callback);
+        return request;
     }
 
     void
-    ResponseHandler(
+    CallbackTimer() {
+        auto request = MakeSdfQueryRequest();
+        if (!request) { return; }
+        m_last_request_responded_.store(false);
+        auto callback =
+            [this](rclcpp::Client<erl_gp_sdf_msgs::srv::SdfQuery>::SharedFutureWithRequest future) {
+                this->ResponseHandlerForVisualization(std::move(future));
+            };
+        m_sdf_client_->async_send_request(request, callback);
+    }
+
+    void
+    ResponseHandlerForVisualization(
         rclcpp::Client<erl_gp_sdf_msgs::srv::SdfQuery>::SharedFutureWithRequest future) {
         auto logger = this->get_logger();
 
@@ -333,10 +353,6 @@ private:
             LoadResponseToGridMap(*response);
             auto msg = grid_map::GridMapRosConverter::toMessage(m_grid_map_);
             m_pub_map_->publish(std::move(msg));
-            if (!m_setting_.attached_to_frame) {  // publish the sdf frame tf
-                m_sdf_frame_pose_.header.stamp = m_stamp_;
-                m_tf_broadcaster_->sendTransform(m_sdf_frame_pose_);
-            }
         }
 
         if (m_setting_.publish_point_cloud) {
@@ -346,6 +362,117 @@ private:
             LoadResponseToPointCloud(*response);
             m_pub_pcd_->publish(m_cloud_);
         }
+    }
+
+    void
+    CallbackSaveQuery(
+        erl_gp_sdf_msgs::srv::SaveMap::Request::ConstSharedPtr req,
+        erl_gp_sdf_msgs::srv::SaveMap::Response::SharedPtr res) {
+
+        if (req->name.empty()) {
+            RCLCPP_WARN(this->get_logger(), "Save query name is empty");
+            res->success = false;
+            return;
+        }
+
+        auto sdf_request = MakeSdfQueryRequest();
+        if (!sdf_request) {
+            res->success = false;
+            return;
+        }
+        auto future = m_sdf_client_->async_send_request(sdf_request);
+        if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), future) !=
+            rclcpp::FutureReturnCode::SUCCESS) {
+            RCLCPP_WARN(
+                this->get_logger(),
+                "Failed to call service %s",
+                m_sdf_client_->get_service_name());
+            res->success = false;
+            return;
+        }
+
+        auto sdf_response = future.get();
+        if (!sdf_response->success) {
+            RCLCPP_WARN(this->get_logger(), "SDF query failed");
+            res->success = false;
+            return;
+        }
+
+        if (!std::filesystem::exists(req->name)) { std::filesystem::create_directories(req->name); }
+        if (!std::filesystem::is_directory(req->name)) {
+            RCLCPP_WARN(
+                this->get_logger(),
+                "Save query path %s is not a directory",
+                req->name.c_str());
+            res->success = false;
+            return;
+        }
+
+        auto &ans = *sdf_response;
+        std::filesystem::path dir_path(req->name);
+
+        Eigen::Map<const Eigen::VectorXd> sdf(
+            ans.signed_distances.data(),
+            ans.signed_distances.size());
+        const auto sdf_filepath = dir_path / "sdf.bin";
+        std::ofstream ofs_sdf(sdf_filepath, std::ios::binary);
+        if (!erl::common::SaveEigenMapToBinaryStream(ofs_sdf, sdf)) {
+            RCLCPP_WARN(this->get_logger(), "Failed to save sdf to %s", sdf_filepath.c_str());
+            res->success = false;
+            return;
+        }
+
+        if (ans.compute_gradient) {
+            Eigen::Map<const Eigen::MatrixXd> gradients(
+                reinterpret_cast<const double *>(ans.gradients.data()),
+                ans.dim,
+                ans.signed_distances.size());
+            const auto gradients_filepath = dir_path / "gradients.bin";
+            std::ofstream ofs_grad(gradients_filepath, std::ios::binary);
+            if (!erl::common::SaveEigenMapToBinaryStream(ofs_grad, gradients)) {
+                RCLCPP_WARN(
+                    this->get_logger(),
+                    "Failed to save gradients to %s",
+                    gradients_filepath.c_str());
+                res->success = false;
+                return;
+            }
+        }
+
+        if (!ans.variances.empty()) {
+            Eigen::Map<const Eigen::VectorXd> variances(
+                reinterpret_cast<const double *>(ans.variances.data()),
+                ans.variances.size());
+            const auto variances_filepath = dir_path / "variances.bin";
+            std::ofstream ofs_var(variances_filepath, std::ios::binary);
+            if (!erl::common::SaveEigenMapToBinaryStream(ofs_var, variances)) {
+                RCLCPP_WARN(
+                    this->get_logger(),
+                    "Failed to save variances to %s",
+                    variances_filepath.c_str());
+                res->success = false;
+                return;
+            }
+        }
+
+        if (!ans.covariances.empty()) {
+            Eigen::Map<const Eigen::MatrixXd> covariances(
+                reinterpret_cast<const double *>(ans.covariances.data()),
+                ans.dim * (ans.dim + 1) / 2,
+                ans.signed_distances.size());
+            const auto covariances_filepath = dir_path / "covariances.bin";
+            std::ofstream ofs_cov(covariances_filepath, std::ios::binary);
+            if (!erl::common::SaveEigenMapToBinaryStream(ofs_cov, covariances)) {
+                RCLCPP_WARN(
+                    this->get_logger(),
+                    "Failed to save covariances to %s",
+                    covariances_filepath.c_str());
+                res->success = false;
+                return;
+            }
+        }
+
+        res->success = true;
     }
 
     void

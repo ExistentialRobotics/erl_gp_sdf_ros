@@ -17,6 +17,10 @@
 
 #include <geometry_msgs/msg/vector3.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <open3d/geometry/LineSet.h>
+#include <open3d/geometry/TriangleMesh.h>
+#include <open3d/io/LineSetIO.h>
+#include <open3d/io/TriangleMeshIO.h>
 #include <rclcpp/rclcpp.hpp>
 #include <rviz_default_plugins/displays/pointcloud/point_cloud_helpers.hpp>
 #include <sensor_msgs/image_encodings.hpp>
@@ -125,6 +129,8 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     Ros2TopicParams save_map_service{"save_map", "services"};
     // parameters of the service to load the map
     Ros2TopicParams load_map_service{"load_map", "services"};
+    // parameters of the service to save the mesh
+    Ros2TopicParams save_mesh_service{"save_mesh", "services"};
 
     ERL_REFLECT_SCHEMA(
         SdfMappingNodeConfig,
@@ -157,7 +163,8 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, query_time_topic),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, sdf_query_service),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_map_service),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, load_map_service));
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, load_map_service),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_mesh_service));
 
     bool
     PostDeserialization() override {
@@ -268,6 +275,10 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
             RCLCPP_WARN(logger, "load_map_service.path is empty");
             return false;
         }
+        if (save_mesh_service.path.empty()) {
+            RCLCPP_WARN(logger, "save_mesh_service.path is empty");
+            return false;
+        }
         return true;
     }
 };
@@ -310,6 +321,7 @@ class SdfMappingNode : public rclcpp::Node {
     rclcpp::Service<erl_gp_sdf_msgs::srv::SdfQuery>::SharedPtr m_srv_query_sdf_;
     rclcpp::Service<erl_gp_sdf_msgs::srv::SaveMap>::SharedPtr m_srv_load_map_;
     rclcpp::Service<erl_gp_sdf_msgs::srv::SaveMap>::SharedPtr m_srv_save_map_;
+    rclcpp::Service<erl_gp_sdf_msgs::srv::SaveMap>::SharedPtr m_srv_save_mesh_;
     rclcpp::Publisher<erl_geometry_msgs::msg::OccupancyTreeMsg>::SharedPtr m_pub_tree_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr m_pub_surface_points_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr m_pub_update_time_;
@@ -623,6 +635,14 @@ public:
                 std::placeholders::_1,
                 std::placeholders::_2),
             m_setting_.save_map_service.GetQoS().get_rmw_qos_profile());
+        m_srv_save_mesh_ = this->create_service<erl_gp_sdf_msgs::srv::SaveMap>(
+            m_setting_.save_mesh_service.path,
+            std::bind(
+                &SdfMappingNode::CallbackSaveMesh,
+                this,
+                std::placeholders::_1,
+                std::placeholders::_2),
+            m_setting_.save_mesh_service.GetQoS().get_rmw_qos_profile());
 #else
         m_srv_query_sdf_ = this->create_service<erl_gp_sdf_msgs::srv::SdfQuery>(
             m_setting_.sdf_query_service.path,
@@ -648,6 +668,14 @@ public:
                 std::placeholders::_1,
                 std::placeholders::_2),
             m_setting_.save_map_service.GetQoS());
+        m_srv_save_mesh_ = this->create_service<erl_gp_sdf_msgs::srv::SaveMap>(
+            m_setting_.save_mesh_service.path,
+            std::bind(
+                &SdfMappingNode::CallbackSaveMesh,
+                this,
+                std::placeholders::_1,
+                std::placeholders::_2),
+            m_setting_.save_mesh_service.GetQoS());
 #endif
         // publish the occupancy tree used by the surface mapping
         if (m_setting_.publish_tree) {
@@ -850,6 +878,9 @@ private:
             }
             // recover the dimension of rotation and translation
             return {true, Rotation(rotation), Translation(translation)};
+        }
+        if (m_setting_.world_frame == m_setting_.sensor_frame) {
+            return {true, Rotation::Identity(), Translation::Zero()};
         }
         // get the latest transform from the tf buffer
         geometry_msgs::msg::TransformStamped transform_stamped;
@@ -1375,6 +1406,85 @@ private:
     }
 
     void
+    CallbackSaveMesh(
+        erl_gp_sdf_msgs::srv::SaveMap::Request::ConstSharedPtr req,
+        erl_gp_sdf_msgs::srv::SaveMap::Response::SharedPtr res) {
+        if (!m_sdf_mapping_) {
+            RCLCPP_WARN(this->get_logger(), "SDF mapping is not initialized");
+            res->success = false;
+            return;
+        }
+        if (req->name.empty()) {
+            RCLCPP_WARN(this->get_logger(), "Mesh file name is empty");
+            res->success = false;
+            return;
+        }
+        std::filesystem::path mesh_file = req->name;
+        mesh_file = std::filesystem::absolute(mesh_file);
+        std::filesystem::create_directories(mesh_file.parent_path());
+        std::vector<VectorD> vertices;
+        std::vector<Eigen::Vector<int, Dim>> faces;
+        {
+            auto lock = m_surface_mapping_->GetLockGuard();
+            try {
+                res->success = m_surface_mapping_->GetMesh(false, vertices, faces);
+            } catch (const std::exception &e) {
+                RCLCPP_WARN(this->get_logger(), "Failed to get mesh: %s", e.what());
+                res->success = false;
+                return;
+            }
+        }
+
+        if (Dim == 2) {
+            open3d::geometry::LineSet line_set;
+            line_set.points_.resize(vertices.size());
+            for (size_t i = 0; i < vertices.size(); ++i) {
+                line_set.points_[i] = Eigen::Vector3d(
+                    static_cast<double>(vertices[i](0)),
+                    static_cast<double>(vertices[i](1)),
+                    0.0);
+            }
+            line_set.lines_.resize(faces.size());
+            for (size_t i = 0; i < faces.size(); ++i) {
+                line_set.lines_[i] =
+                    Eigen::Vector2i(static_cast<int>(faces[i](0)), static_cast<int>(faces[i](1)));
+            }
+            res->success &= open3d::io::WriteLineSetToPLY(req->name, line_set);
+        } else {
+            open3d::geometry::TriangleMesh mesh;
+            mesh.vertices_.resize(vertices.size());
+            for (size_t i = 0; i < vertices.size(); ++i) {
+                mesh.vertices_[i] = Eigen::Vector3d(
+                    static_cast<double>(vertices[i](0)),
+                    static_cast<double>(vertices[i](1)),
+                    static_cast<double>(vertices[i](2)));
+            }
+            mesh.triangles_.resize(faces.size());
+            for (size_t i = 0; i < faces.size(); ++i) {
+                mesh.triangles_[i] = Eigen::Vector3i(
+                    static_cast<int>(faces[i](0)),
+                    static_cast<int>(faces[i](1)),
+                    static_cast<int>(faces[i](2)));
+            }
+            constexpr bool write_ascii = false;
+            constexpr bool compressed = false;
+            constexpr bool write_vertex_normals = true;
+            constexpr bool write_vertex_colors = false;
+            constexpr bool write_triangle_uvs = false;
+            constexpr bool print_progress = false;
+            res->success &= open3d::io::WriteTriangleMeshToPLY(
+                req->name,
+                mesh,
+                write_ascii,
+                compressed,
+                write_vertex_normals,
+                write_vertex_colors,
+                write_triangle_uvs,
+                print_progress);
+        }
+    }
+
+    void
     CallbackPublishTree() {
         if (!m_tree_) { return; }
         if (m_pub_tree_->get_subscription_count() == 0) { return; }  // no subscribers
@@ -1382,6 +1492,7 @@ private:
             auto lock = m_surface_mapping_->GetLockGuard();
             erl::geometry::SaveToOccupancyTreeMsg<Dtype>(
                 m_tree_,
+                m_surface_mapping_->GetScaling(),
                 m_setting_.publish_tree_binary,
                 m_msg_tree_);
         }

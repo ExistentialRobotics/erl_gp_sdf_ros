@@ -218,7 +218,7 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
             ROS_WARN("Scan stride must be positive");
             return false;
         }
-        if (convert_scan_to_points) {
+        if (scan_type != ScanType::PointCloud && convert_scan_to_points) {
             if (scan_frame_setting_file.empty()) {
                 ROS_WARN("For scan conversion, scan_frame_setting_file must be set.");
                 return false;
@@ -441,6 +441,7 @@ public:
             m_odom_queue_.reserve(m_setting_.odom_queue_size);
         }
 
+        bool are_points = false;
         switch (m_setting_.scan_type) {
             case ScanType::Laser:
                 ROS_INFO("Subscribing to %s as laser scan", m_setting_.scan_topic.c_str());
@@ -452,6 +453,7 @@ public:
                 break;
             case ScanType::PointCloud:
                 ROS_INFO("Subscribing to %s as point cloud", m_setting_.scan_topic.c_str());
+                are_points = true;
                 m_sub_scan_ = m_nh_.subscribe(
                     m_setting_.scan_topic,
                     10,
@@ -468,7 +470,7 @@ public:
                 break;
         }
 
-        if (m_setting_.convert_scan_to_points) {
+        if (!are_points && m_setting_.convert_scan_to_points) {
             if (Dim == 2) {
                 auto frame_setting = std::make_shared<typename LidarFrame2D::Setting>();
                 try {
@@ -765,6 +767,9 @@ private:
             }
             // recover the dimension of rotation and translation
             return {true, Rotation(rotation), Translation(translation)};
+        }
+        if (m_setting_.world_frame == m_setting_.sensor_frame) {
+            return {true, Rotation::Identity(), Translation::Zero()};
         }
         // get the latest transform from the tf buffer
         geometry_msgs::TransformStamped transform_stamped;
@@ -1110,8 +1115,7 @@ private:
             ERL_BLOCK_TIMER_MSG("Update SDF GPs");
             if (ok) { m_sdf_mapping_->UpdateGpSdf(time_budget_us - surf_mapping_time * 1000); }
         }
-        // bool success = m_sdf_mapping_->Update(rotation, translation, scan,
-        // are_points, in_local);
+        // bool success = m_sdf_mapping_->Update(rotation, translation, scan, are_points, in_local);
         auto t2 = ros::WallTime::now();
         m_msg_update_time_.data = (t2 - t1).toSec();
         m_pub_update_time_.publish(m_msg_update_time_);
@@ -1379,6 +1383,7 @@ private:
             auto lock = m_surface_mapping_->GetLockGuard();
             erl::geometry::SaveToOccupancyTreeMsg<Dtype>(
                 m_tree_,
+                m_surface_mapping_->GetScaling(),
                 m_setting_.publish_tree_binary,
                 m_msg_tree_);
         }
@@ -1423,10 +1428,15 @@ template<typename Dtype, int Dim>
 int
 Spin(ros::NodeHandle &nh) {
     SdfMappingNode<Dtype, Dim> node(nh);
-    // ros::spin();
-    ros::AsyncSpinner spinner(0);  // use all available threads
-    spinner.start();
-    ros::waitForShutdown();
+    bool async_spin = false;
+    nh.param<bool>("async_spin", async_spin, false);
+    if (async_spin) {
+        ros::AsyncSpinner spinner(0);  // use all available threads
+        spinner.start();
+        ros::waitForShutdown();
+    } else {
+        ros::spin();
+    }
     return 0;
 }
 

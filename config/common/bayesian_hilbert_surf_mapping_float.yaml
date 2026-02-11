@@ -49,6 +49,9 @@ update_map:
     max_adjust_tries: 1
     var_scale: 0.1
     var_max: 1.5
+filter_points: false
+filter_points_min_z_world: -10000.0
+filter_points_max_z_world: 10000.0
 scaling: 1.0
 bhm_depth: 15
 weight_sync: true

@@ -1,0 +1,115 @@
+<launch>
+    <!-- Options: float, double -->
+    <arg name="precision" default="float" />
+    <!-- Options: bayesian_hilbert, gp_occ -->
+    <arg name="surf_mapping_method" default="bayesian_hilbert" />
+    <!-- Options: gp_occ, bayesian_hilbert -->
+    <arg name="visualize_sdf" default="true" />
+    <!-- whether to launch rviz for visualization -->
+    <arg name="open_rviz" default="true" />
+    <!-- whether to launch rqt_plot for performance analysis -->
+    <arg name="open_rqt_plot" default="true" />
+    <!-- whether to launch the sdf visualization node -->
+    <arg name="robot_name" default="jackal2" />
+    <arg name="world_frame" default="odom" />
+    <arg name="sensor_frame" default="$(arg robot_name)/dlio/os_sensor" />
+
+    <arg name="bag_file" default="$(env HOME)/Data/jackal_lidar_2d/jackal2_map_Lab.bag" />
+    <arg name="rosbag_play_rate" default="0.25" />
+    <arg name="rosbag_play_start_time" default="0.0" />
+    <arg name="rosbag_play_duration" default="10000.0" />
+    <arg name="play_rosbag" default="true" />
+
+    <node pkg="pointcloud_to_laserscan" type="pointcloud_to_laserscan_node"
+        name="pointcloud_to_laserscan" output="screen">
+        <remap from="cloud_in" to="/$(arg robot_name)/dlio/odom_node/pointcloud/deskewed" />
+        <remap from="scan" to="scan" />
+
+        <param name="target_frame" value="$(arg robot_name)/dlio/os_sensor" />
+        <param name="transform_tolerance" value="0.01" />
+        <param name="min_height" value="0.2" />
+        <param name="max_height" value="2.0" />
+        <param name="angle_min" value="-3.14159" />
+        <param name="angle_max" value="3.14159" />
+        <!-- M_PI/360.0 -->
+        <param name="angle_increment" value="0.0087" />
+        <param name="scan_time" value="0.3333" />
+        <param name="range_min" value="0.5" />
+        <param name="range_max" value="10.0" />
+        <param name="use_inf" value="true" />
+        <param name="inf_epsilon" value="1.0" />
+        <!-- 0: detect number of cores, 1: single threaded, 2->inf: number of threads -->
+        <param name="concurrency_level" value="1" />
+    </node>
+
+    <param name="use_sim_time" value="$(arg play_rosbag)" />
+
+    <node pkg="tf2_ros" type="static_transform_publisher" name="map_odom_transformer"
+        args="0 0 0 0 0 0 1 map odom" />
+
+    <node pkg="erl_gp_sdf_ros" type="sdf_mapping_node" name="sdf_mapping_node" output="screen">
+        <rosparam command="load"
+            file="$(find erl_gp_sdf_ros)/config/ros1/$(arg surf_mapping_method)_$(arg precision)_2d.yaml" />
+        <param name="map_dim" value="2" />
+        <param name="double_precision" value="$(eval precision == 'double')" />
+        <param name="surface_mapping_setting_file"
+            value="$(find erl_gp_sdf_ros)/config/jackal_2d/$(arg surf_mapping_method)/surf_mapping_$(arg precision)_scale0.1.yaml" />
+        <param name="sdf_mapping_setting_file"
+            value="$(find erl_gp_sdf_ros)/config/jackal_2d/$(arg surf_mapping_method)/sdf_mapping_$(arg precision).yaml" />
+        <param name="use_odom" value="false" />
+        <param name="world_frame" value="$(arg world_frame)" />
+        <param name="sensor_frame" value="$(arg sensor_frame)" />
+        <param name="scan_topic" value="/scan" />
+        <param name="scan_type" value="laser" />
+        <param name="scan_frame_setting_file"
+            value="$(find erl_gp_sdf_ros)/config/jackal_2d/lidar_frame_2d.yaml" />
+        <param name="scan_stride" value="1" />
+        <param name="convert_scan_to_points"
+            value="$(eval surf_mapping_method == 'bayesian_hilbert')" />
+        <param name="scan_in_local_frame" value="true" />
+        <param name="publish_tree" value="true" />
+    </node>
+
+    <group if="$(arg visualize_sdf)">
+        <node pkg="erl_gp_sdf_ros" type="sdf_visualization_node" name="sdf_visualization_node"
+            output="screen">
+            <param name="resolution" value="0.1" />
+            <param name="x_cells" value="201" />
+            <param name="y_cells" value="131" />
+            <param name="x" value="-2.5" />
+            <param name="y" value="-1.5" />
+            <param name="z" value="0.0" />
+            <param name="publish_gradient" value="true" />
+            <param name="publish_sdf_variance" value="true" />
+            <param name="publish_gradient_variance" value="false" />
+            <param name="publish_covariance" value="false" />
+            <param name="publish_grid_map" value="true" />
+            <param name="publish_point_cloud" value="false" />
+            <param name="publish_rate" value="4.0" />
+            <!-- change to true if you want to visualize SDF around the robot -->
+            <param name="attached_to_frame" value="false" />
+            <param name="world_frame" value="$(arg world_frame)" />
+            <param name="attached_frame" value="$(arg sensor_frame)" />
+            <param name="sdf_query_service" value="/sdf_mapping_node/sdf_query" />
+            <param name="map_topic" value="sdf_grid_map" />
+            <param name="point_cloud_topic" value="sdf_point_cloud" />
+        </node>
+    </group>
+
+    <group if="$(arg open_rviz)">
+        <node pkg="rviz" type="rviz" name="rviz"
+            args="-d $(find erl_gp_sdf_ros)/rviz/$(arg robot_name)_2d_lidar.rviz" />
+    </group>
+
+    <group if="$(arg open_rqt_plot)">
+        <node pkg="rqt_plot" type="rqt_plot" name="rqt_plot"
+            args="/sdf_mapping_node/update_time/data /sdf_mapping_node/query_time/data" />
+    </group>
+
+    <group if="$(arg play_rosbag)">
+        <node pkg="rosbag" type="play" name="rosbag_play"
+            args="$(arg bag_file) --rate=$(arg rosbag_play_rate) --start=$(arg rosbag_play_start_time)  --duration=$(arg rosbag_play_duration)
+            --clock"
+            output="screen" />
+    </group>
+</launch>

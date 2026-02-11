@@ -1,2 +1,3 @@
-scan_type: sensor_msgs/PointCloud2
+scan_type: point_cloud
 scan_frame_type: erl::geometry::LidarFrame3D<float>
+scan_frame_setting_file: config/sensors/lidar_frame.yaml

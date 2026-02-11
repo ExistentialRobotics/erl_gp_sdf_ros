@@ -3,7 +3,6 @@
     <arg name="precision" default="float" />
     <!-- Options: float, double -->
     <arg name="surf_mapping_method" default="bayesian_hilbert" />
-    <arg name="world_frame" default="odom" />
     <!-- Options: gp_occ, bayesian_hilbert -->
     <arg name="visualize_sdf" default="true" />
     <!-- whether to launch rviz for visualization -->
@@ -12,6 +11,8 @@
     <arg name="open_rqt_plot" default="true" />
     <!-- whether to launch the sdf visualization node -->
     <arg name="robot_name" default="jackal2" />
+    <arg name="world_frame" default="odom" />
+    <arg name="sensor_frame" default="$(arg robot_name)/dlio/os_sensor" />
 
     <arg name="bag_file" default="$(env HOME)/Data/jackal_lidar_3d/jackal2_map_Lab.bag" />
     <arg name="rosbag_play_rate" default="0.25" />
@@ -27,14 +28,14 @@
         <rosparam command="load" file="$(find erl_gp_sdf_ros)/config/ros1/use_lidar_frame_3d_$(arg precision).yaml" />
         <param name="map_dim" value="3" />
         <param name="double_precision" value="$(eval precision == 'double')" />
-        <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/jackal_3d/$(arg surf_mapping_method)_surf_mapping_lidar_$(arg precision).yaml" />
-        <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/jackal_3d/$(arg surf_mapping_method)_sdf_mapping_lidar_$(arg precision).yaml" />
+        <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/jackal_3d/$(arg surf_mapping_method)/surf_mapping_lidar_$(arg precision).yaml" />
+        <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/jackal_3d/$(arg surf_mapping_method)/sdf_mapping_lidar_$(arg precision).yaml" />
         <param name="use_odom" value="false" />
-        <param name="odom_topic" value="/dlio/odom_node/odom" />
+        <param name="odom_topic" value="/$(arg robot_name)/dlio/odom_node/odom" />
         <param name="odom_msg_type" value="odometry" />
         <param name="world_frame" value="$(arg world_frame)" />
-        <param name="sensor_frame" value="$(arg robot_name)/os_sensor" />
-        <param name="scan_topic" value="/dlio_odom/deskewed_pc" />
+        <param name="sensor_frame" value="$(arg sensor_frame)" />
+        <param name="scan_topic" value="/$(arg robot_name)/dlio/odom_node/pointcloud/deskewed" />
         <param name="scan_type" value="point_cloud" />
         <param name="scan_frame_setting_file" value="$(find erl_gp_sdf_ros)/config/jackal_3d/lidar_frame_3d_360.yaml" />
         <param name="scan_stride" value="1" />

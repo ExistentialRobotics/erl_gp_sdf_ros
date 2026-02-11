@@ -173,6 +173,12 @@ RUN DEBIAN_FRONTEND=noninteractive apt install -y \
     python3-pyqtgraph && \
     sudo pip uninstall numpy --break-system-packages -y
 
+#######################
+# More ROS 2 packages #
+#######################
+RUN DEBIAN_FRONTEND=noninteractive apt install -y \
+    ros-jazzy-pointcloud-to-laserscan
+
 ############
 # Clean up #
 ############

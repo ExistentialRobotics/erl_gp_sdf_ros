@@ -1,37 +1,20 @@
 #!/usr/bin/env python3
 
-
-
 import os
 
-#TODO fix rviz config, add documentation on how to use Humble for clearpath simulator.
-
 from ament_index_python.packages import get_package_share_directory
-
 from launch import LaunchDescription
-
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
-
 from launch.conditions import IfCondition
-
 from launch.substitutions import LaunchConfiguration
-
 from launch_ros.actions import Node
-
 from launch_ros.parameter_descriptions import ParameterFile
 
 
-
-
-
 def generate_launch_description():
-
     """
-
     Launch SDF mapping & visualization nodes that subscribe to *existing*
-
     namespaced topics (e.g., /jackal2/*), including /jackal2/tf and /jackal2/tf_static.
-
     """
 
     namespace_arg = DeclareLaunchArgument(
@@ -133,19 +116,15 @@ def generate_launch_description():
         config_file = os.path.join(pkg_share, "config", "ros2", f"{surf_mapping_method}_{precision}_2d.yaml")
 
         surf_mapping_config = os.path.join(
-
             erl_gp_sdf_share, "config", "gazebo", f"{surf_mapping_method}_surf_mapping_{precision}.yaml"
-
         )
 
         sdf_mapping_config = os.path.join(
-
             erl_gp_sdf_share, "config", "gazebo", f"{surf_mapping_method}_sdf_mapping_{precision}.yaml"
-
         )
 
         scan_frame_config = os.path.join(pkg_share, "config", "lidar_frame_2d_gazebo.yaml")
-        
+
 
         odom_topic = f"/dlio/odom_node/odom"
 
@@ -285,7 +264,7 @@ def generate_launch_description():
 
                 "world_frame": world_frame,
 
-                "target_frame": world_frame,  
+                "target_frame": world_frame,
 
                 "attached_frame": sensor_frame,
 

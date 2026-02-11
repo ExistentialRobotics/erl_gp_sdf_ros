@@ -18,10 +18,10 @@ scan_in_local_frame: true
 depth_scale: 0.001
 publish_tree: false
 publish_tree_binary: true
-publish_tree_frequency: 5.0
+publish_tree_frequency: 2.0
 tree_topic: surface_mapping_tree
 publish_surface_points: false
-publish_surface_points_frequency: 5.0
+publish_surface_points_frequency: 2.0
 surface_points_topic: surface_points
 update_time_topic: update_time
 query_time_topic: query_time
