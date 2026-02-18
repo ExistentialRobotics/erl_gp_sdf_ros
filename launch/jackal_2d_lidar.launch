@@ -53,7 +53,7 @@
         <param name="map_dim" value="2" />
         <param name="double_precision" value="$(eval precision == 'double')" />
         <param name="surface_mapping_setting_file"
-            value="$(find erl_gp_sdf_ros)/config/jackal_2d/$(arg surf_mapping_method)/surf_mapping_$(arg precision)_scale0.1.yaml" />
+            value="$(find erl_gp_sdf_ros)/config/jackal_2d/$(arg surf_mapping_method)/surf_mapping_$(arg precision).yaml" />
         <param name="sdf_mapping_setting_file"
             value="$(find erl_gp_sdf_ros)/config/jackal_2d/$(arg surf_mapping_method)/sdf_mapping_$(arg precision).yaml" />
         <param name="use_odom" value="false" />

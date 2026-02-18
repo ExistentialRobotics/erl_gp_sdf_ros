@@ -153,6 +153,7 @@ class SdfVisualizationNode {
     ros::ServiceServer m_srv_save_query_;
     ros::Timer m_timer_;
     tf2_ros::Buffer m_tf_buffer_;
+    tf2_ros::TransformListener m_tf_listener_{m_tf_buffer_};
     std::vector<geometry_msgs::Vector3> m_query_points_;
     ros::Time m_stamp_;
     grid_map::GridMap m_grid_map_;
@@ -245,8 +246,7 @@ private:
                 transform_stamped = m_tf_buffer_.lookupTransform(
                     m_setting_.world_frame,
                     m_setting_.attached_frame,
-                    ros::Time(0),
-                    ros::Duration(1.0));
+                    ros::Time(0));  // get the latest available transform
             } catch (tf2::TransformException &ex) {
                 ROS_WARN(ex.what());
                 return false;

@@ -1121,6 +1121,8 @@ private:
         m_pub_update_time_.publish(m_msg_update_time_);
         ROS_INFO("Update fps: %f", 1.0 / m_msg_update_time_.data);
         if (!success) { ROS_WARN("Failed to update SDF mapping"); }
+
+        erl::common::BlockTimerRecords::PrintRecords();
     }
 
     // --- service handler: runs Test() on the current map ---

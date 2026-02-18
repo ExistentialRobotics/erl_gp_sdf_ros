@@ -157,6 +157,7 @@ class SdfVisualizatioNode : public rclcpp::Node {
     rclcpp::Service<erl_gp_sdf_msgs::srv::SaveMap>::SharedPtr m_srv_save_query_;
     rclcpp::TimerBase::SharedPtr m_timer_;
     std::shared_ptr<tf2_ros::Buffer> m_tf_buffer_;
+    std::shared_ptr<tf2_ros::TransformListener> m_tf_listener_;
     std::vector<geometry_msgs::msg::Vector3> m_query_points_;
     rclcpp::Time m_stamp_;
     grid_map::GridMap m_grid_map_;
@@ -166,7 +167,8 @@ class SdfVisualizatioNode : public rclcpp::Node {
 public:
     SdfVisualizatioNode()
         : Node("sdf_visualization_node"),
-          m_tf_buffer_(std::make_shared<tf2_ros::Buffer>(this->get_clock())) {
+          m_tf_buffer_(std::make_shared<tf2_ros::Buffer>(this->get_clock())),
+          m_tf_listener_(std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer_)) {
 
         g_curr_node = this;
 
@@ -184,7 +186,7 @@ public:
         m_sdf_client_ = this->create_client<erl_gp_sdf_msgs::srv::SdfQuery>(
             m_setting_.sdf_query_service.path,
             m_setting_.sdf_query_service.GetQoS().get_rmw_qos_profile());
-            m_srv_save_query_ = this->create_service<erl_gp_sdf_msgs::srv::SaveMap>(
+        m_srv_save_query_ = this->create_service<erl_gp_sdf_msgs::srv::SaveMap>(
             m_setting_.save_query_service.path,
             std::bind(
                 &SdfVisualizatioNode::CallbackSaveQuery,

@@ -6,6 +6,7 @@ local_bhm:
         sampling_area_scale: 3.0
         free_points_per_meter: 2.0
         free_sampling_margin: 0.005
+        init_mu: 10.0
     kernel_type: erl::covariance::RadialBiasFunction<float, 2>
     kernel:
         x_dim: 2
@@ -36,5 +37,5 @@ update_map:
     max_num_voxels: 8000
 scaling: 1.0
 hinged_grid_size: 9
-bhm_test_margin: 0.12
+bhm_test_margin: 0.1
 unknown_log_odds: 100.0  # unknown space log-odds, >0: occupied, <0: free

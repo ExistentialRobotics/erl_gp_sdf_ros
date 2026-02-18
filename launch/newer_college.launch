@@ -12,6 +12,8 @@
     <arg name="rosbag_play_duration" default="10000.0" />
     <arg name="play_rosbag" default="true" />
 
+    <param name="use_sim_time" value="true" />
+
     <node pkg="erl_gp_sdf_ros" type="sdf_mapping_node" name="sdf_mapping_node" output="screen">
         <rosparam command="load"
             file="$(find erl_gp_sdf_ros)/config/ros1/$(arg surf_mapping_method)_float_3d.yaml" />
