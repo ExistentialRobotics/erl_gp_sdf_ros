@@ -82,7 +82,7 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     // can be "odometry" or "transform_stamped"
     OdomType odom_msg_type = OdomType::Odometry;
     // size of the odometry queue
-    int odom_queue_size = 100;
+    int64_t odom_queue_size = 100;
     // name of the world frame
     std::string world_frame = "map";
     // name of the sensor frame
@@ -98,13 +98,13 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     // path to the yaml file for the scan frame setting
     std::string scan_frame_setting_file = "";
     // if scan_stride > 1, the scan will be downsampled by this factor.
-    int scan_stride = 1;
+    int64_t scan_stride = 1;
     // if true, convert the scan to points when the scan is not a point cloud.
     bool convert_scan_to_points = false;
     // if the scan data is in the local frame, set this to true.
     bool scan_in_local_frame = false;
     // scale for depth image, 0.001 converts mm to m.
-    float depth_scale = 0.001f;
+    double depth_scale = 0.001;
     // if true, publish the occupancy tree used by the surface mapping.
     bool publish_tree = false;
     // if true, use binary format to publish the occupancy tree, which makes the message smaller.
@@ -343,7 +343,7 @@ class SdfMappingNode : public rclcpp::Node {
 
     std::mutex m_odom_queue_lock_;
     std::vector<geometry_msgs::msg::TransformStamped> m_odom_queue_{};
-    int m_odom_queue_head_ = -1;
+    int64_t m_odom_queue_head_ = -1;
     std::shared_ptr<tf2_ros::Buffer> m_tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> m_tf_listener_;
 
@@ -911,7 +911,7 @@ private:
     void
     CallbackOdomOdometry(const nav_msgs::msg::Odometry::SharedPtr msg) {
         std::lock_guard<std::mutex> lock(m_odom_queue_lock_);
-        if (static_cast<int>(m_odom_queue_.size()) >= m_setting_.odom_queue_size) {
+        if (static_cast<int64_t>(m_odom_queue_.size()) >= m_setting_.odom_queue_size) {
             auto &transform = m_odom_queue_[m_odom_queue_head_];
             transform.header = msg->header;
             transform.child_frame_id = msg->child_frame_id;
@@ -936,7 +936,7 @@ private:
     void
     CallbackOdomTransformStamped(const geometry_msgs::msg::TransformStamped::SharedPtr msg) {
         std::lock_guard<std::mutex> lock(m_odom_queue_lock_);
-        if (static_cast<int>(m_odom_queue_.size()) >= m_setting_.odom_queue_size) {
+        if (static_cast<int64_t>(m_odom_queue_.size()) >= m_setting_.odom_queue_size) {
             auto &transform = m_odom_queue_[m_odom_queue_head_];
             transform.header = msg->header;
             transform.child_frame_id = msg->child_frame_id;
@@ -981,7 +981,7 @@ private:
         scan = Eigen::Map<const Eigen::VectorXf>(scan_msg.ranges.data(), scan_msg.ranges.size())
                    .cast<Dtype>();
         if (m_setting_.scan_stride > 1) {
-            scan = DownsampleEigenMatrix(scan, m_setting_.scan_stride, 1);
+            scan = DownsampleEigenMatrix(scan, static_cast<int>(m_setting_.scan_stride), 1);
         }
         for (long i = 0; i < scan.size(); ++i) {
             if (!std::isfinite(scan(i, 0))) { scan(i, 0) = 0.0; }  // invalid range
@@ -1039,7 +1039,7 @@ private:
         uint32_t row_step = cloud.row_step;
         auto width = static_cast<int>(cloud.width);
         auto height = static_cast<int>(cloud.height);
-        const int scan_stride = m_setting_.scan_stride;
+        const auto scan_stride = static_cast<int>(m_setting_.scan_stride);
         if (scan_stride > 1) {
             width = (width + scan_stride - 1) / scan_stride;
             height = (height + scan_stride - 1) / scan_stride;
@@ -1131,7 +1131,10 @@ private:
         }
         if (scan.size() > 0) {
             if (m_setting_.scan_stride > 1) {
-                scan = DownsampleEigenMatrix(scan, m_setting_.scan_stride, m_setting_.scan_stride);
+                scan = DownsampleEigenMatrix(
+                    scan,
+                    static_cast<int>(m_setting_.scan_stride),
+                    static_cast<int>(m_setting_.scan_stride));
             }
             long cnt_valid = 0;
             Dtype *ptr = scan.data();
@@ -1147,7 +1150,7 @@ private:
                 m_depth_image_.reset();
                 return false;
             }
-            scan.array() *= m_setting_.depth_scale;  // convert to meters
+            scan.array() *= static_cast<Dtype>(m_setting_.depth_scale);  // convert to meters
         }
         m_depth_image_.reset();
         return true;

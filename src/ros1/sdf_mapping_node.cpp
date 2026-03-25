@@ -101,7 +101,7 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     // if the scan data is in the local frame, set this to true.
     bool scan_in_local_frame = false;
     // scale for depth image, 0.001 converts mm to m.
-    float depth_scale = 0.001f;
+    double depth_scale = 0.001;
     // if true, publish the occupancy tree used by the surface mapping.
     bool publish_tree = false;
     // if true, use binary format to publish the occupancy tree, which makes the
@@ -1034,7 +1034,7 @@ private:
                 m_depth_image_.reset();
                 return false;
             }
-            scan.array() *= m_setting_.depth_scale;  // convert to meters
+            scan.array() *= static_cast<Dtype>(m_setting_.depth_scale);  // convert to meters
         }
         m_depth_image_.reset();
         return true;

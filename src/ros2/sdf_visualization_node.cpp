@@ -24,9 +24,9 @@ struct SdfVisNodeConfig : public Yamlable<SdfVisNodeConfig> {
     // resolution of the grid map.
     double resolution = 0.1;
     // number of cells in the grid map along the x-axis.
-    int x_cells = 101;
+    long x_cells = 101;
     // number of cells in the grid map along the y-axis.
-    int y_cells = 101;
+    long y_cells = 101;
     // the x coordinate of the grid map origin.
     double x = 0.0;
     // the y coordinate of the grid map origin.
@@ -99,7 +99,7 @@ struct SdfVisNodeConfig : public Yamlable<SdfVisNodeConfig> {
         }
         if (x_cells % 2 == 0) {
             x_cells += 1;
-            RCLCPP_WARN(logger, "X cells must be odd, set to %d", x_cells);
+            RCLCPP_WARN(logger, "X cells must be odd, set to %ld", x_cells);
         }
         if (y_cells <= 0) {
             RCLCPP_WARN(logger, "Y cells must be positive");
@@ -107,7 +107,7 @@ struct SdfVisNodeConfig : public Yamlable<SdfVisNodeConfig> {
         }
         if (y_cells % 2 == 0) {
             y_cells += 1;
-            RCLCPP_WARN(logger, "Y cells must be odd, set to %d", y_cells);
+            RCLCPP_WARN(logger, "Y cells must be odd, set to %ld", y_cells);
         }
         if (!publish_grid_map && !publish_point_cloud) {
             RCLCPP_WARN(
@@ -249,10 +249,10 @@ private:
     InitQueryPoints() {
         m_query_points_.clear();
         m_query_points_.reserve(m_setting_.x_cells * m_setting_.y_cells);
-        int half_x = (m_setting_.x_cells - 1) / 2;
-        int half_y = (m_setting_.y_cells - 1) / 2;
-        for (int j = half_y; j >= -half_y; --j) {      // y-axis
-            for (int i = half_x; i >= -half_x; --i) {  // x-axis (column major)
+        long half_x = (m_setting_.x_cells - 1) / 2;
+        long half_y = (m_setting_.y_cells - 1) / 2;
+        for (long j = half_y; j >= -half_y; --j) {      // y-axis
+            for (long i = half_x; i >= -half_x; --i) {  // x-axis (column major)
                 geometry_msgs::msg::Vector3 p;
                 p.x = static_cast<double>(i) * m_setting_.resolution + m_setting_.x;
                 p.y = static_cast<double>(j) * m_setting_.resolution + m_setting_.y;
@@ -262,7 +262,7 @@ private:
         }
         RCLCPP_INFO(
             this->get_logger(),
-            "Query points initialized, %d x %d points",
+            "Query points initialized, %ld x %ld points",
             m_setting_.x_cells,
             m_setting_.y_cells);
     }
