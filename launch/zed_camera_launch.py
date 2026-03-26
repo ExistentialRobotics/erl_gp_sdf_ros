@@ -80,7 +80,7 @@ def generate_launch_description():
             sdf_mapping_config = os.path.join(erl_gp_sdf_share, "config", "zed", f"gp_occ_sdf_mapping_{precision}.yaml")
             sensor_frame = "zed_left_camera_optical_frame"
             scan_topic = "/zed/zed_node/depth/depth_registered"
-            scan_type = "sensor_msgs/msg/Image"
+            scan_type = "depth"
             convert_scan_to_points = False
             scan_stride = 1
         else:  # bayesian_hilbert
@@ -92,7 +92,7 @@ def generate_launch_description():
             )
             sensor_frame = "zed_left_camera_frame"
             scan_topic = "/zed/zed_node/point_cloud/cloud_registered"
-            scan_type = "sensor_msgs/msg/PointCloud2"
+            scan_type = "point_cloud"
             convert_scan_to_points = True
             scan_stride = 2
 

@@ -12,6 +12,7 @@
 #include "erl_gp_sdf/bayesian_hilbert_surface_mapping.hpp"
 #include "erl_gp_sdf/gp_occ_surface_mapping.hpp"
 #include "erl_gp_sdf/gp_sdf_mapping.hpp"
+#include "erl_gp_sdf_msgs/srv/occ_query.hpp"
 #include "erl_gp_sdf_msgs/srv/save_map.hpp"
 #include "erl_gp_sdf_msgs/srv/sdf_query.hpp"
 
@@ -125,6 +126,8 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     Ros2TopicParams query_time_topic{"query_time"};
     // parameters of the service to predict SDF values
     Ros2TopicParams sdf_query_service{"sdf_query", "services"};
+    // parameters of the service to query occupancy values
+    Ros2TopicParams occ_query_service{"occ_query", "services"};
     // parameters of the service to save the map
     Ros2TopicParams save_map_service{"save_map", "services"};
     // parameters of the service to load the map
@@ -162,6 +165,7 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, update_time_topic),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, query_time_topic),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, sdf_query_service),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, occ_query_service),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_map_service),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, load_map_service),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_mesh_service));
@@ -267,6 +271,10 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
             RCLCPP_WARN(logger, "sdf_query_service.path is empty");
             return false;
         }
+        if (occ_query_service.path.empty()) {
+            RCLCPP_WARN(logger, "occ_query_service.path is empty");
+            return false;
+        }
         if (save_map_service.path.empty()) {
             RCLCPP_WARN(logger, "save_map_service.path is empty");
             return false;
@@ -319,6 +327,7 @@ class SdfMappingNode : public rclcpp::Node {
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr m_sub_point_cloud_;
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr m_sub_depth_image_;
     rclcpp::Service<erl_gp_sdf_msgs::srv::SdfQuery>::SharedPtr m_srv_query_sdf_;
+    rclcpp::Service<erl_gp_sdf_msgs::srv::OccQuery>::SharedPtr m_srv_occ_query_;
     rclcpp::Service<erl_gp_sdf_msgs::srv::SaveMap>::SharedPtr m_srv_load_map_;
     rclcpp::Service<erl_gp_sdf_msgs::srv::SaveMap>::SharedPtr m_srv_save_map_;
     rclcpp::Service<erl_gp_sdf_msgs::srv::SaveMap>::SharedPtr m_srv_save_mesh_;
@@ -643,6 +652,14 @@ public:
                 std::placeholders::_1,
                 std::placeholders::_2),
             m_setting_.save_mesh_service.GetQoS().get_rmw_qos_profile());
+        m_srv_occ_query_ = this->create_service<erl_gp_sdf_msgs::srv::OccQuery>(
+            m_setting_.occ_query_service.path,
+            std::bind(
+                &SdfMappingNode::CallbackOccQuery,
+                this,
+                std::placeholders::_1,
+                std::placeholders::_2),
+            m_setting_.occ_query_service.GetQoS().get_rmw_qos_profile());
 #else
         m_srv_query_sdf_ = this->create_service<erl_gp_sdf_msgs::srv::SdfQuery>(
             m_setting_.sdf_query_service.path,
@@ -676,6 +693,14 @@ public:
                 std::placeholders::_1,
                 std::placeholders::_2),
             m_setting_.save_mesh_service.GetQoS());
+        m_srv_occ_query_ = this->create_service<erl_gp_sdf_msgs::srv::OccQuery>(
+            m_setting_.occ_query_service.path,
+            std::bind(
+                &SdfMappingNode::CallbackOccQuery,
+                this,
+                std::placeholders::_1,
+                std::placeholders::_2),
+            m_setting_.occ_query_service.GetQoS());
 #endif
         // publish the occupancy tree used by the surface mapping
         if (m_setting_.publish_tree) {
@@ -1355,6 +1380,132 @@ private:
         }
 
         erl::common::BlockTimerRecords::PrintRecords();
+    }
+
+    void
+    CallbackOccQuery(
+        const std::shared_ptr<erl_gp_sdf_msgs::srv::OccQuery::Request> req,
+        std::shared_ptr<erl_gp_sdf_msgs::srv::OccQuery::Response> res) {
+
+        const auto n = static_cast<int>(req->query_points.size());
+        const std::string &mode = req->mode;
+        const bool compute_gradient = req->compute_gradient;
+
+        // Validate mode
+        if (mode != "logodd" && mode != "prob") {
+            res->success = false;
+            res->reason = "invalid mode '" + mode + "', expected 'logodd' or 'prob'";
+            return;
+        }
+
+        // Parse query points (same pattern as CallbackSdfQuery)
+        Eigen::Map<const Eigen::Matrix3Xd> positions_org(
+            reinterpret_cast<const double *>(req->query_points.data()),
+            3,
+            n);
+        MatrixDX positions = positions_org.topRows<Dim>().template cast<Dtype>();
+
+        res->dim = Dim;
+
+        // Try BayesianHilbertSurfaceMapping first
+        auto bhm = std::dynamic_pointer_cast<BayesianHilbertSurfaceMapping>(m_surface_mapping_);
+        if (bhm) {
+            auto lock = bhm->GetLockGuard();  // lock the surface mapping for thread safety
+            (void) lock;                      // avoid unused variable warning
+
+            VectorX prob_occupied(n);
+            MatrixDX gradients(Dim, n);
+
+            bhm->Predict(
+                positions,
+                /*logodd=*/(mode == "logodd"),
+                /*compute_gradient=*/compute_gradient,
+                /*gradient_with_sigmoid=*/false,
+                /*parallel=*/true,
+                prob_occupied,
+                gradients);
+
+            // Fill results
+            res->results.resize(n);
+            for (int i = 0; i < n; ++i) {
+                res->results[i] = static_cast<double>(prob_occupied[i]);
+            }
+
+            // Fill gradients if requested
+            res->gradients.clear();
+            if (compute_gradient) {
+                res->gradients.resize(n);
+                if (Dim == 2) {
+                    for (int i = 0; i < n; ++i) {
+                        res->gradients[i].x = static_cast<double>(gradients(0, i));
+                        res->gradients[i].y = static_cast<double>(gradients(1, i));
+                        res->gradients[i].z = 0.0;
+                    }
+                } else {
+                    for (int i = 0; i < n; ++i) {
+                        res->gradients[i].x = static_cast<double>(gradients(0, i));
+                        res->gradients[i].y = static_cast<double>(gradients(1, i));
+                        res->gradients[i].z = static_cast<double>(gradients(2, i));
+                    }
+                }
+            }
+
+            res->success = true;
+            return;
+        }
+
+        // Fallback: GpOccSurfaceMapping (tree-based query)
+        auto gp_occ = std::dynamic_pointer_cast<GpOccSurfaceMapping>(m_surface_mapping_);
+        if (gp_occ) {
+            if (compute_gradient) {
+                res->success = false;
+                res->reason = "compute_gradient is not supported for GpOccSurfaceMapping";
+                return;
+            }
+
+            auto tree = gp_occ->GetTree();
+            if (!tree) {
+                res->success = false;
+                res->reason = "GpOccSurfaceMapping has no occupancy tree";
+                return;
+            }
+
+            auto lock = gp_occ->GetLockGuard();  // lock the tree for thread safety
+            (void) lock;                         // avoid unused variable warning
+
+            res->results.resize(n);
+            const bool is_logodd = (mode == "logodd");
+#pragma omp parallel for default(none) shared(res, tree, positions, n, is_logodd)
+            for (int i = 0; i < n; ++i) {
+                const auto *node = [&]() {
+                    if constexpr (Dim == 2) {
+                        return tree->Search(positions(0, i), positions(1, i));
+                    } else {
+                        return tree->Search(positions(0, i), positions(1, i), positions(2, i));
+                    }
+                }();
+                if (node == nullptr) {
+                    // Unknown space
+                    if (is_logodd) {
+                        res->results[i] = 0.0;
+                    } else {
+                        res->results[i] = 0.5;
+                    }
+                } else {
+                    if (is_logodd) {
+                        res->results[i] = static_cast<double>(node->GetLogOdds());
+                    } else {
+                        res->results[i] = static_cast<double>(node->GetOccupancy());
+                    }
+                }
+            }
+
+            res->success = true;
+            return;
+        }
+
+        res->success = false;
+        res->reason = "no occupancy mapping backend available";
     }
 
     void

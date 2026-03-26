@@ -132,7 +132,7 @@ Performs real-time SDF mapping using Gaussian Process regression. The node subsc
 
 *Sensor Configuration:*
 - `scan_topic` (string): Topic name for sensor data (default: "/front/scan")
-- `scan_type` (string): Sensor message type - ROS1: "sensor_msgs/LaserScan", "sensor_msgs/PointCloud2", "sensor_msgs/Image"; ROS2: "sensor_msgs/msg/LaserScan", "sensor_msgs/msg/PointCloud2", "sensor_msgs/msg/Image" (default: varies by ROS version)
+- `scan_type` (string): Sensor message type - "laser", "point_cloud", or "depth" (default: "laser")
 - `scan_frame_type` (string): Scan frame class name (e.g., "erl::geometry::LidarFrame3D<float>")
 - `scan_frame_setting_file` (string): Path to scan frame configuration file
 - `scan_stride` (int): Downsampling factor for scan data (default: 1)
@@ -147,7 +147,7 @@ Performs real-time SDF mapping using Gaussian Process regression. The node subsc
 *Odometry Configuration:*
 - `use_odom` (bool): Whether to use odometry for sensor pose (default: false)
 - `odom_topic` (string): Odometry topic name (default: "/jackal_velocity_controller/odom")
-- `odom_msg_type` (string): Odometry message type - ROS1: "nav_msgs/Odometry" or "geometry_msgs/TransformStamped"; ROS2: "nav_msgs/msg/Odometry" or "geometry_msgs/msg/TransformStamped" (default: varies by ROS version)
+- `odom_msg_type` (string): Odometry message type - "odometry" or "transform_stamped" (default: "odometry")
 - `odom_queue_size` (int): Size of odometry message queue (default: 100)
 
 *Publishing Configuration:*

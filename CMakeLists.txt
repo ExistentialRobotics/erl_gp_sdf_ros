@@ -42,8 +42,10 @@ erl_setup_ros(
     ROS2_COMPONENTS
     rclcpp
     std_msgs
+    std_srvs
     sensor_msgs
     geometry_msgs
+    nav_msgs
     tf2_ros
     tf2_geometry_msgs
     tf2_eigen

@@ -41,6 +41,11 @@ def generate_launch_description():
         default_value="true",
         description="Whether to launch the sdf visualization node",
     )
+    visualize_occ_arg = DeclareLaunchArgument(
+        "visualize_occ",
+        default_value="true",
+        description="Whether to launch the occ visualization node",
+    )
     open_rviz_arg = DeclareLaunchArgument(
         "open_rviz",
         default_value="true",
@@ -48,12 +53,12 @@ def generate_launch_description():
     )
     open_rqt_plot_arg = DeclareLaunchArgument(
         "open_rqt_plot",
-        default_value="true",
+        default_value="false",
         description="Whether to launch rqt_plot for performance analysis",
     )
     rosbag_play_rate_arg = DeclareLaunchArgument(
         "rosbag_play_rate",
-        default_value="2.0",
+        default_value="0.7",
         description="Playback rate for rosbag",
     )
 
@@ -191,7 +196,7 @@ def generate_launch_description():
         executable="transform_to_tf_node",
         name="transform_to_tf_node",
         output="screen",
-        parameters=[{"transform_topic": "/kinect/vrpn_client/estimated_transform"}],
+        parameters=[{"transform_topic.path": "/kinect/vrpn_client/estimated_transform"}],
     )
 
     # Ground truth point cloud node
@@ -218,10 +223,10 @@ def generate_launch_description():
         # Build config file paths
         config_file = os.path.join(erl_gp_sdf_ros_share, "config", "ros2", f"{surf_mapping_method}_{precision}_3d.yaml")
         surf_mapping_config = os.path.join(
-            erl_gp_sdf_share, "config", "cow_and_lady", f"{surf_mapping_method}_surf_mapping_{precision}.yaml"
+            erl_gp_sdf_share, "config", "cow_and_lady", surf_mapping_method, f"surf_mapping_{precision}.yaml"
         )
         sdf_mapping_config = os.path.join(
-            erl_gp_sdf_share, "config", "cow_and_lady", f"{surf_mapping_method}_sdf_mapping_{precision}.yaml"
+            erl_gp_sdf_share, "config", "cow_and_lady", surf_mapping_method, f"sdf_mapping_{precision}.yaml"
         )
         scan_frame_config = os.path.join(erl_gp_sdf_share, "config", "cow_and_lady", "depth_frame.yaml")
 
@@ -239,11 +244,11 @@ def generate_launch_description():
                         "surface_mapping_setting_file": surf_mapping_config,
                         "sdf_mapping_setting_file": sdf_mapping_config,
                         "use_odom": False,
-                        "odom_topic": "/kinect/vrpn_client/estimated_transform",
-                        "odom_msg_type": "geometry_msgs/msg/TransformStamped",
+                        "odom_topic.path": "/kinect/vrpn_client/estimated_transform",
+                        "odom_msg_type": "transform_stamped",
                         "sensor_frame": "camera_rgb_optical_frame",
                         "scan_topic.path": "/camera/depth_registered/points",
-                        "scan_type": "sensor_msgs/msg/PointCloud2",
+                        "scan_type": "point_cloud",
                         "scan_frame_setting_file": scan_frame_config,
                         "scan_stride": 2,
                         "scan_in_local_frame": True,
@@ -273,7 +278,7 @@ def generate_launch_description():
                 "publish_covariance": False,
                 "publish_grid_map": True,
                 "publish_point_cloud": True,
-                "publish_rate": 5.0,
+                "publish_rate": 1.0,
                 "attached_to_frame": True,
                 "world_frame": "map",
                 "attached_frame": "camera_frame",
@@ -283,6 +288,36 @@ def generate_launch_description():
             }
         ],
         condition=IfCondition(LaunchConfiguration("visualize_sdf")),
+    )
+
+    # Occ visualization node
+    occ_visualization_node = Node(
+        package="erl_gp_sdf_ros",
+        executable="occ_visualization_node",
+        name="occ_visualization_node",
+        output="screen",
+        parameters=[
+            {
+                "resolution": 0.02,
+                "x_cells": 101,
+                "y_cells": 101,
+                "x": 0.0,
+                "y": 0.0,
+                "z": 0.0,
+                "mode": "prob",
+                "compute_gradient": False,
+                "publish_grid_map": True,
+                "publish_occupancy_grid": True,
+                "publish_rate": 1.0,
+                "attached_to_frame": True,
+                "world_frame": "map",
+                "attached_frame": "camera_frame",
+                "occ_query_service.path": "occ_query",
+                "map_topic.path": "occ_grid_map",
+                "occupancy_grid_topic.path": "occupancy_grid",
+            }
+        ],
+        condition=IfCondition(LaunchConfiguration("visualize_occ")),
     )
 
     # RViz node
@@ -317,6 +352,7 @@ def generate_launch_description():
             precision_arg,
             surf_mapping_method_arg,
             visualize_sdf_arg,
+            visualize_occ_arg,
             open_rviz_arg,
             open_rqt_plot_arg,
             rosbag_play_rate_arg,
@@ -330,6 +366,7 @@ def generate_launch_description():
             gt_point_cloud_node,
             sdf_mapping_node,
             sdf_visualization_node,
+            occ_visualization_node,
             rviz_node,
             rqt_plot_node,
             # Rosbag playback

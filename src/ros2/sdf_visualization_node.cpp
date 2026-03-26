@@ -10,6 +10,7 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/point_field.hpp>
 #include <std_msgs/msg/header.hpp>
+#include <std_srvs/srv/trigger.hpp>
 #include <tf2_eigen/tf2_eigen.hpp>
 #include <tf2_ros/transform_broadcaster.hpp>
 #include <tf2_ros/transform_listener.h>
@@ -61,6 +62,8 @@ struct SdfVisNodeConfig : public Yamlable<SdfVisNodeConfig> {
     Ros2TopicParams point_cloud_topic{"sdf_point_cloud"};
     // save query service
     Ros2TopicParams save_query_service{"sdf_save_query", "services"};
+    // trigger query service — manually trigger an update and publish
+    Ros2TopicParams trigger_query_service{"sdf_trigger_query", "services"};
 
     ERL_REFLECT_SCHEMA(
         SdfVisNodeConfig,
@@ -83,7 +86,8 @@ struct SdfVisNodeConfig : public Yamlable<SdfVisNodeConfig> {
         ERL_REFLECT_MEMBER(SdfVisNodeConfig, sdf_query_service),
         ERL_REFLECT_MEMBER(SdfVisNodeConfig, map_topic),
         ERL_REFLECT_MEMBER(SdfVisNodeConfig, point_cloud_topic),
-        ERL_REFLECT_MEMBER(SdfVisNodeConfig, save_query_service));
+        ERL_REFLECT_MEMBER(SdfVisNodeConfig, save_query_service),
+        ERL_REFLECT_MEMBER(SdfVisNodeConfig, trigger_query_service));
 
     bool
     PostDeserialization() override {
@@ -115,10 +119,6 @@ struct SdfVisNodeConfig : public Yamlable<SdfVisNodeConfig> {
                 "At least one of publish_grid_map or publish_point_cloud must be true");
             return false;
         }
-        if (publish_rate <= 0) {
-            RCLCPP_WARN(logger, "Publish frequency must be positive");
-            return false;
-        }
         if (attached_to_frame) {
             if (attached_frame.empty()) {
                 RCLCPP_WARN(logger, "Attached frame is empty but attached_to_frame is true");
@@ -145,6 +145,10 @@ struct SdfVisNodeConfig : public Yamlable<SdfVisNodeConfig> {
             RCLCPP_WARN(logger, "save_query_service is empty");
             return false;
         }
+        if (trigger_query_service.path.empty()) {
+            RCLCPP_WARN(logger, "trigger_query_service is empty");
+            return false;
+        }
         return true;
     }
 };
@@ -155,6 +159,7 @@ class SdfVisualizatioNode : public rclcpp::Node {
     rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr m_pub_map_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr m_pub_pcd_;
     rclcpp::Service<erl_gp_sdf_msgs::srv::SaveMap>::SharedPtr m_srv_save_query_;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr m_srv_trigger_query_;
     rclcpp::TimerBase::SharedPtr m_timer_;
     std::shared_ptr<tf2_ros::Buffer> m_tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> m_tf_listener_;
@@ -173,7 +178,7 @@ public:
         g_curr_node = this;
 
         auto logger = this->get_logger();
-        if (!LoadParameters()) {
+        if (!m_setting_.LoadFromRos2(this, "")) {
             RCLCPP_FATAL(logger, "Failed to load parameters");
             rclcpp::shutdown();
             return;
@@ -194,6 +199,14 @@ public:
                 std::placeholders::_1,
                 std::placeholders::_2),
             m_setting_.save_query_service.GetQoS().get_rmw_qos_profile());
+        m_srv_trigger_query_ = this->create_service<std_srvs::srv::Trigger>(
+            m_setting_.trigger_query_service.path,
+            std::bind(
+                &SdfVisualizatioNode::CallbackTriggerQuery,
+                this,
+                std::placeholders::_1,
+                std::placeholders::_2),
+            m_setting_.trigger_query_service.GetQoS().get_rmw_qos_profile());
 #else
         m_sdf_client_ = this->create_client<erl_gp_sdf_msgs::srv::SdfQuery>(
             m_setting_.sdf_query_service.path,
@@ -206,6 +219,14 @@ public:
                 std::placeholders::_1,
                 std::placeholders::_2),
             m_setting_.save_query_service.GetQoS());
+        m_srv_trigger_query_ = this->create_service<std_srvs::srv::Trigger>(
+            m_setting_.trigger_query_service.path,
+            std::bind(
+                &SdfVisualizatioNode::CallbackTriggerQuery,
+                this,
+                std::placeholders::_1,
+                std::placeholders::_2),
+            m_setting_.trigger_query_service.GetQoS());
 #endif
         if (m_setting_.publish_grid_map) {
             m_pub_map_ = this->create_publisher<grid_map_msgs::msg::GridMap>(
@@ -233,18 +254,17 @@ public:
         m_cloud_.height = 1;
         m_cloud_.is_bigendian = false;
         m_cloud_.is_dense = false;
-        m_timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(500),
-            std::bind(&SdfVisualizatioNode::CallbackTimer, this));
+        if (m_setting_.publish_rate > 0) {
+            m_timer_ = this->create_wall_timer(
+                std::chrono::milliseconds(static_cast<int>(1000.0 / m_setting_.publish_rate)),
+                std::bind(&SdfVisualizatioNode::CallbackTimer, this));
+        } else {
+            RCLCPP_INFO(logger, "Publish rate is non-positive, not starting timer");
+        }
         RCLCPP_INFO(this->get_logger(), "SdfVisualizatioNode initialized");
     }
 
 private:
-    bool
-    LoadParameters() {
-        return m_setting_.LoadFromRos2(this, "");
-    }
-
     void
     InitQueryPoints() {
         m_query_points_.clear();
@@ -315,36 +335,49 @@ private:
         return request;
     }
 
+    bool
+    HasSubscribers() const {
+        if (m_pub_map_ && m_pub_map_->get_subscription_count() > 0) { return true; }
+        if (m_pub_pcd_ && m_pub_pcd_->get_subscription_count() > 0) { return true; }
+        return false;
+    }
+
     void
     CallbackTimer() {
+        if (!HasSubscribers()) { return; }
         auto request = MakeSdfQueryRequest();
         if (!request) { return; }
         m_last_request_responded_.store(false);
         auto callback =
             [this](rclcpp::Client<erl_gp_sdf_msgs::srv::SdfQuery>::SharedFutureWithRequest future) {
-                this->ResponseHandlerForVisualization(std::move(future));
+                this->ResponseHandler(std::move(future));
             };
         m_sdf_client_->async_send_request(request, callback);
     }
 
     void
-    ResponseHandlerForVisualization(
+    ResponseHandler(
         rclcpp::Client<erl_gp_sdf_msgs::srv::SdfQuery>::SharedFutureWithRequest future) {
-        auto logger = this->get_logger();
-
         m_last_request_responded_.store(true);
         auto request_response_pair = future.get();
-        auto &response = request_response_pair.second;
-        if (!response->success) {
+        ProcessResponse(*request_response_pair.second);
+    }
+
+    /// Populate grid map / point cloud from query response and publish. Returns true on success.
+    bool
+    ProcessResponse(const erl_gp_sdf_msgs::srv::SdfQuery::Response &response) {
+        auto logger = this->get_logger();
+
+        if (!response.success) {
             RCLCPP_WARN(logger, "SDF query failed");
-            return;
+            return false;
         }
 
-        const auto n = static_cast<int>(response->signed_distances.size());
+        const auto n = static_cast<int>(response.signed_distances.size());
         const auto map_size = m_grid_map_.getSize();
         if (const auto m = map_size[0] * map_size[1]; n != m) {
             RCLCPP_WARN(logger, "Query points size %d does not match map size %d", n, m);
-            return;
+            return false;
         }
 
         // 1. copy the result to the grid map / the point cloud
@@ -352,7 +385,7 @@ private:
 
         if (m_setting_.publish_grid_map) {
             m_grid_map_.setTimestamp(rclcpp::Time(m_stamp_).nanoseconds());
-            LoadResponseToGridMap(*response);
+            LoadResponseToGridMap(response);
             auto msg = grid_map::GridMapRosConverter::toMessage(m_grid_map_);
             m_pub_map_->publish(std::move(msg));
         }
@@ -360,10 +393,12 @@ private:
         if (m_setting_.publish_point_cloud) {
             m_cloud_.header.stamp = m_stamp_;
             m_cloud_.data.clear();
-            InitializePointCloudFields(*response);
-            LoadResponseToPointCloud(*response);
+            InitializePointCloudFields(response);
+            LoadResponseToPointCloud(response);
             m_pub_pcd_->publish(m_cloud_);
         }
+
+        return true;
     }
 
     void
@@ -478,6 +513,29 @@ private:
     }
 
     void
+    CallbackTriggerQuery(
+        const std::shared_ptr<std_srvs::srv::Trigger::Request> /*req*/,
+        std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
+
+        auto sdf_request = MakeSdfQueryRequest();
+        if (!sdf_request) {
+            res->success = false;
+            res->message = "Failed to create query request";
+            return;
+        }
+        auto future = m_sdf_client_->async_send_request(sdf_request);
+        if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), future) !=
+            rclcpp::FutureReturnCode::SUCCESS) {
+            res->success = false;
+            res->message = "Failed to call SDF query service";
+            return;
+        }
+
+        res->success = ProcessResponse(*future.get());
+        res->message = res->success ? "Query and publish completed" : "ProcessResponse failed";
+    }
+
+    void
     InitializePointCloudFields(const erl_gp_sdf_msgs::srv::SdfQuery::Response &ans) {
         if (!m_cloud_.fields.empty()) { return; }
         // initialize point cloud fields
@@ -568,10 +626,6 @@ private:
         auto logger = this->get_logger();
         const auto map_size = m_grid_map_.getSize();
         const auto n = static_cast<int>(ans.signed_distances.size());
-        if (const auto m = map_size[0] * map_size[1]; n != m) {
-            RCLCPP_WARN(logger, "Query points size %d does not match map size %d", n, m);
-            return;
-        }
 
         // SDF
         m_grid_map_.add(
