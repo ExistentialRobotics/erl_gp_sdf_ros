@@ -3,14 +3,13 @@
 #include "erl_gp_sdf_msgs/srv/occ_query.hpp"
 #include "erl_gp_sdf_msgs/srv/save_map.hpp"
 
-#include <std_srvs/srv/trigger.hpp>
-
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/vector3.hpp>
 #include <grid_map_msgs/msg/grid_map.hpp>
 #include <grid_map_ros/grid_map_ros.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <std_srvs/srv/trigger.hpp>
 #include <tf2_eigen/tf2_eigen.hpp>
 #include <tf2_ros/transform_listener.h>
 
@@ -144,6 +143,7 @@ class OccVisualizationNode : public rclcpp::Node {
     std::vector<geometry_msgs::msg::Vector3> m_query_points_;
     rclcpp::Time m_stamp_;
     grid_map::GridMap m_grid_map_;
+    nav_msgs::msg::OccupancyGrid m_occ_grid_;
     std::atomic_bool m_last_request_responded_ = true;
 
 public:
@@ -223,13 +223,30 @@ public:
             grid_map::Position(m_setting_.x, m_setting_.y));
         if (m_setting_.attached_to_frame) {
             m_grid_map_.setFrameId(m_setting_.attached_frame);
+            m_occ_grid_.header.frame_id = m_setting_.attached_frame;
         } else {
             m_grid_map_.setFrameId(m_setting_.world_frame);
+            m_occ_grid_.header.frame_id = m_setting_.world_frame;
         }
+
+        // Pre-set OccupancyGrid static fields
+        const auto width = static_cast<uint32_t>(m_setting_.x_cells);
+        const auto height = static_cast<uint32_t>(m_setting_.y_cells);
+        const long half_x = (m_setting_.x_cells - 1) / 2;
+        const long half_y = (m_setting_.y_cells - 1) / 2;
+        m_occ_grid_.info.resolution = static_cast<float>(m_setting_.resolution);
+        m_occ_grid_.info.width = width;
+        m_occ_grid_.info.height = height;
+        m_occ_grid_.info.origin.position.x =
+            m_setting_.x - static_cast<double>(half_x) * m_setting_.resolution;
+        m_occ_grid_.info.origin.position.y =
+            m_setting_.y - static_cast<double>(half_y) * m_setting_.resolution;
+        m_occ_grid_.info.origin.orientation.w = 1.0;
+        m_occ_grid_.data.resize(width * height, -1);
+
         if (m_setting_.publish_rate > 0) {
             m_timer_ = this->create_wall_timer(
-                std::chrono::milliseconds(
-                    static_cast<int>(1000.0 / m_setting_.publish_rate)),
+                std::chrono::milliseconds(static_cast<int>(1000.0 / m_setting_.publish_rate)),
                 std::bind(&OccVisualizationNode::CallbackTimer, this));
         }
         RCLCPP_INFO(this->get_logger(), "OccVisualizationNode initialized");
@@ -268,7 +285,7 @@ private:
         }
 
         if (!m_last_request_responded_.load()) {
-            RCLCPP_WARN(logger, "Last request is still pending, skipping this cycle");
+            RCLCPP_WARN_THROTTLE(logger, *this->get_clock(),  10000.0, "Last request is still pending, skipping this cycle");
             return nullptr;
         }
 
@@ -353,7 +370,7 @@ private:
         }
 
         // Populate GridMap with "occ" layer
-        m_grid_map_.setTimestamp(rclcpp::Time(m_stamp_).nanoseconds());
+        m_grid_map_.setTimestamp(m_stamp_.nanoseconds());
         m_grid_map_.add(
             "occ",
             Eigen::Map<const Eigen::MatrixXd>(response.results.data(), map_size[0], map_size[1])
@@ -382,10 +399,24 @@ private:
 
         // Publish OccupancyGrid (only for "prob" mode)
         if (m_setting_.publish_occupancy_grid && m_setting_.mode == "prob") {
-            nav_msgs::msg::OccupancyGrid occ_grid;
-            grid_map::GridMapRosConverter::toOccupancyGrid(
-                m_grid_map_, "occ", 0.0f, 1.0f, occ_grid);
-            m_pub_occ_grid_->publish(occ_grid);
+            const auto width = m_occ_grid_.info.width;
+            const auto height = m_occ_grid_.info.height;
+
+            m_occ_grid_.header.stamp = m_stamp_;
+            // response.results: (max_x, max_y) -> (min_x, min_y), x changes first
+            // Reversed:         (min_x, min_y) -> (max_x, max_y), x changes first
+            // OccupancyGrid:    (min_x, min_y) -> (max_x, max_y), x changes first (row-major)
+            const auto total = static_cast<int>(width * height);
+            for (int i = 0; i < total; ++i) {
+                const auto val = response.results[total - 1 - i];
+                if (std::isnan(val)) {
+                    m_occ_grid_.data[i] = -1;
+                } else {
+                    m_occ_grid_.data[i] = static_cast<int8_t>(
+                        std::clamp(val * 100.0, 0.0, 100.0));
+                }
+            }
+            m_pub_occ_grid_->publish(m_occ_grid_);
         }
 
         return true;

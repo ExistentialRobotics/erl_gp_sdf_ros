@@ -8,3 +8,7 @@ erl_collect_targets(EXECUTABLES sdf_mapping_node)
 add_executable(sdf_visualization_node src/ros1/sdf_visualization_node.cpp)
 erl_target_dependencies(sdf_visualization_node)
 erl_collect_targets(EXECUTABLES sdf_visualization_node)
+
+add_executable(occ_visualization_node src/ros1/occ_visualization_node.cpp)
+erl_target_dependencies(occ_visualization_node)
+erl_collect_targets(EXECUTABLES occ_visualization_node)

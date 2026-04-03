@@ -298,7 +298,7 @@ private:
         }
 
         if (!m_last_request_responded_.load()) {
-            RCLCPP_WARN(logger, "Last request is still pending, skipping this cycle");
+            RCLCPP_WARN_THROTTLE(logger, *this->get_clock(), 10000.0, "Last request is still pending, skipping this cycle");
             return nullptr;
         }
 
