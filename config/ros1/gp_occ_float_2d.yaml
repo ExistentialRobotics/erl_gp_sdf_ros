@@ -23,8 +23,12 @@ tree_topic: surface_mapping_tree
 publish_surface_points: false
 publish_surface_points_frequency: 5.0
 surface_points_topic: surface_points
+publish_mesh: false
+publish_mesh_frequency: 1.0
+mesh_topic: mesh
 update_time_topic: update_time
 query_time_topic: query_time
 sdf_query_service: sdf_query
 save_map_service: save_map
 load_map_service: load_map
+save_mesh_service: save_mesh

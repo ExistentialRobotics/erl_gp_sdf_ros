@@ -102,10 +102,10 @@ def generate_launch_description():
         # Build config file paths
         config_file = os.path.join(erl_gp_sdf_ros_share, "config", "ros2", f"{surf_mapping_method}_{precision}_2d.yaml")
         surf_mapping_config = os.path.join(
-            erl_gp_sdf_share, "config", "gazebo", f"{surf_mapping_method}_surf_mapping_{precision}.yaml"
+            erl_gp_sdf_share, "config", "gazebo", surf_mapping_method, f"surf_mapping_{precision}.yaml"
         )
         sdf_mapping_config = os.path.join(
-            erl_gp_sdf_share, "config", "gazebo", f"{surf_mapping_method}_sdf_mapping_{precision}.yaml"
+            erl_gp_sdf_share, "config", "gazebo", surf_mapping_method, f"sdf_mapping_{precision}.yaml"
         )
         scan_frame_config = os.path.join(erl_gp_sdf_share, "config", "gazebo", "lidar_frame_2d.yaml")
 

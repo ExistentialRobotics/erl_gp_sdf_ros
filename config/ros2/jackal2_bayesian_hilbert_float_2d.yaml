@@ -27,6 +27,10 @@ jackal2/sdf_mapping_node:
         surface_points_topic.path: surface_points
         update_time_topic.path: update_time
         query_time_topic.path: query_time
+        publish_mesh: false
+        publish_mesh_frequency: 1.0
+        mesh_topic.path: mesh
         sdf_query_service.path: sdf_query
         save_map_service.path: save_map
         load_map_service.path: load_map
+        save_mesh_service.path: save_mesh

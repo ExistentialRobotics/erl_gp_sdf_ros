@@ -38,8 +38,8 @@
         <rosparam command="load" file="$(find erl_gp_sdf_ros)/config/ros1/$(arg surf_mapping_method)_$(arg precision)_3d.yaml" />
         <param name="map_dim" value="3" />
         <param name="double_precision" value="$(eval precision == 'double')" />
-        <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf)/config/cow_and_lady/$(arg surf_mapping_method)_surf_mapping_$(arg precision).yaml" />
-        <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf)/config/cow_and_lady/$(arg surf_mapping_method)_sdf_mapping_$(arg precision).yaml" />
+        <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf)/config/cow_and_lady/$(arg surf_mapping_method)/surf_mapping_$(arg precision).yaml" />
+        <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf)/config/cow_and_lady/$(arg surf_mapping_method)/sdf_mapping_$(arg precision).yaml" />
         <param name="use_odom" value="false" />
         <param name="odom_topic" value="/kinect/vrpn_client/estimated_transform" />
         <param name="odom_msg_type" value="transform_stamped" />
@@ -50,6 +50,8 @@
         <param name="scan_stride" value="2" />
         <param name="scan_in_local_frame" value="true" />
         <param name="publish_tree" value="false" />
+        <param name="publish_mesh" value="true" />
+        <param name="publish_mesh_frequency" value="0.5" />
     </node>
 
     <group if="$(arg visualize_sdf)">

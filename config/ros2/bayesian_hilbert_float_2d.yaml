@@ -25,8 +25,12 @@ sdf_mapping_node:
         publish_surface_points: false
         publish_surface_points_frequency: 5.0
         surface_points_topic.path: surface_points
+        publish_mesh: false
+        publish_mesh_frequency: 1.0
+        mesh_topic.path: mesh
         update_time_topic.path: update_time
         query_time_topic.path: query_time
         sdf_query_service.path: sdf_query
         save_map_service.path: save_map
         load_map_service.path: load_map
+        save_mesh_service.path: save_mesh

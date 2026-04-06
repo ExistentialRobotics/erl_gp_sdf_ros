@@ -24,8 +24,8 @@
         <rosparam command="load" file="$(find erl_gp_sdf_ros)/config/ros1/$(arg surf_mapping_method)_$(arg precision)_2d.yaml" />
         <param name="map_dim" value="2" />
         <param name="double_precision" value="$(eval precision == 'double')" />
-        <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf)/config/gazebo/$(arg surf_mapping_method)_surf_mapping_$(arg precision).yaml" />
-        <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf)/config/gazebo/$(arg surf_mapping_method)_sdf_mapping_$(arg precision).yaml" />
+        <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf)/config/gazebo/$(arg surf_mapping_method)/surf_mapping_$(arg precision).yaml" />
+        <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf)/config/gazebo/$(arg surf_mapping_method)/sdf_mapping_$(arg precision).yaml" />
         <param name="scan_topic" value="/gazebo_room_2d_node/scan" />
         <param name="scan_frame_setting_file" value="$(find erl_gp_sdf)/config/gazebo/lidar_frame_2d.yaml" />
     </node>

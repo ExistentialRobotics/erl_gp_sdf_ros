@@ -118,10 +118,10 @@ def generate_launch_description():
                 pkg_share, "config", "ros2", f"{namespace}_use_lidar_frame_3d_{precision}.yaml"
             )
         surf_mapping_config = os.path.join(
-            pkg_share, "config", "jackal_3d", f"{surf_mapping_method}_surf_mapping_lidar_{precision}.yaml"
+            pkg_share, "config", "jackal_3d", surf_mapping_method, f"surf_mapping_lidar_{precision}.yaml"
         )
         sdf_mapping_config = os.path.join(
-            pkg_share, "config", "jackal_3d", f"{surf_mapping_method}_sdf_mapping_lidar_{precision}.yaml"
+            pkg_share, "config", "jackal_3d", surf_mapping_method, f"sdf_mapping_lidar_{precision}.yaml"
         )
         scan_frame_config = os.path.join(pkg_share, "config", "jackal_3d", "lidar_frame_3d_360.yaml")
 
@@ -148,11 +148,11 @@ def generate_launch_description():
                         "surface_mapping_setting_file": surf_mapping_config,
                         "sdf_mapping_setting_file": sdf_mapping_config,
                         "use_odom": False,
-                        "odom_topic": f"/{robot_name}/dlo/odom_node/odom",
+                        "odom_topic.path": f"/{robot_name}/dlo/odom_node/odom",
                         "odom_msg_type": "odometry",
                         "world_frame": "map",
                         "sensor_frame": f"{robot_name}/os_sensor",
-                        "scan_topic": f"/{robot_name}/ouster/points",
+                        "scan_topic.path": f"/{robot_name}/ouster/points",
                         "scan_type": "point_cloud",
                         "scan_frame_setting_file": scan_frame_config,
                         "scan_stride": 1,

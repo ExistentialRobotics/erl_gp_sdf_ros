@@ -8,6 +8,7 @@
 #include "erl_geometry/depth_frame_3d.hpp"
 #include "erl_geometry/lidar_frame_2d.hpp"
 #include "erl_geometry/lidar_frame_3d.hpp"
+#include "erl_geometry_msgs/msg/mesh_msg.hpp"
 #include "erl_geometry_msgs/ros2/occupancy_tree_msg.hpp"
 #include "erl_gp_sdf/bayesian_hilbert_surface_mapping.hpp"
 #include "erl_gp_sdf/gp_occ_surface_mapping.hpp"
@@ -120,6 +121,12 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     double publish_surface_points_frequency = 5.0;
     // parameters of the topic to publish the surface points
     Ros2TopicParams surface_points_topic{"surface_points"};
+    // if true, publish the mesh built by the surface mapping.
+    bool publish_mesh = false;
+    // frequency to publish the mesh
+    double publish_mesh_frequency = 1.0;
+    // parameters of the topic to publish the mesh
+    Ros2TopicParams mesh_topic{"mesh"};
     // parameters of the topic to publish the update time
     Ros2TopicParams update_time_topic{"update_time"};
     // parameters of the topic to publish the query time
@@ -162,6 +169,9 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_surface_points),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_surface_points_frequency),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, surface_points_topic),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_mesh),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_mesh_frequency),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, mesh_topic),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, update_time_topic),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, query_time_topic),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, sdf_query_service),
@@ -241,23 +251,37 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
                 return false;
             }
         }
-        if (publish_tree && tree_topic.path.empty()) {
-            RCLCPP_WARN(logger, "tree_topic.path is empty but publish_tree is true");
-            return false;
+        if (publish_tree) {
+            if (tree_topic.path.empty()) {
+                RCLCPP_WARN(logger, "tree_topic.path is empty but publish_tree is true");
+                return false;
+            }
+            if (publish_tree_frequency <= 0.0) {
+                RCLCPP_WARN(logger, "publish_tree_frequency must be positive");
+                return false;
+            }
         }
-        if (publish_tree && publish_tree_frequency <= 0.0) {
-            RCLCPP_WARN(logger, "publish_tree_frequency must be positive");
-            return false;
+        if (publish_surface_points) {
+            if (surface_points_topic.path.empty()) {
+                RCLCPP_WARN(
+                    logger,
+                    "surface_points_topic.path is empty but publish_surface_points is true");
+                return false;
+            }
+            if (publish_surface_points_frequency <= 0.0) {
+                RCLCPP_WARN(logger, "publish_surface_points_frequency must be positive");
+                return false;
+            }
         }
-        if (publish_surface_points && surface_points_topic.path.empty()) {
-            RCLCPP_WARN(
-                logger,
-                "surface_points_topic.path is empty but publish_surface_points is true");
-            return false;
-        }
-        if (publish_surface_points && publish_surface_points_frequency <= 0.0) {
-            RCLCPP_WARN(logger, "publish_surface_points_frequency must be positive");
-            return false;
+        if (publish_mesh) {
+            if (mesh_topic.path.empty()) {
+                RCLCPP_WARN(logger, "mesh_topic.path is empty but publish_mesh is true");
+                return false;
+            }
+            if (publish_mesh_frequency <= 0.0) {
+                RCLCPP_WARN(logger, "publish_mesh_frequency must be positive");
+                return false;
+            }
         }
         if (update_time_topic.path.empty()) {
             RCLCPP_WARN(logger, "update_time_topic.path is empty");
@@ -333,12 +357,15 @@ class SdfMappingNode : public rclcpp::Node {
     rclcpp::Service<erl_gp_sdf_msgs::srv::SaveMap>::SharedPtr m_srv_save_mesh_;
     rclcpp::Publisher<erl_geometry_msgs::msg::OccupancyTreeMsg>::SharedPtr m_pub_tree_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr m_pub_surface_points_;
+    rclcpp::Publisher<erl_geometry_msgs::msg::MeshMsg>::SharedPtr m_pub_mesh_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr m_pub_update_time_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr m_pub_query_time_;
     rclcpp::TimerBase::SharedPtr m_pub_tree_timer_;
     rclcpp::TimerBase::SharedPtr m_pub_surface_points_timer_;
+    rclcpp::TimerBase::SharedPtr m_pub_mesh_timer_;
     erl_geometry_msgs::msg::OccupancyTreeMsg m_msg_tree_;
     sensor_msgs::msg::PointCloud2 m_msg_surface_points_;
+    erl_geometry_msgs::msg::MeshMsg m_msg_mesh_;
     std_msgs::msg::Float64 m_msg_update_time_;
     std_msgs::msg::Float64 m_msg_query_time_;
 
@@ -709,24 +736,26 @@ public:
                 rclcpp::shutdown();
                 return;
             }
+            // create the publisher for the occupancy tree
             m_pub_tree_ = this->create_publisher<erl_geometry_msgs::msg::OccupancyTreeMsg>(
                 m_setting_.tree_topic.path,
                 m_setting_.tree_topic.GetQoS());
+            // initialize the tree message
+            m_msg_tree_.header.frame_id = m_setting_.world_frame;
+            m_msg_tree_.header.stamp = this->get_clock()->now();
+            // create a timer to publish the tree at the specified frequency
             m_pub_tree_timer_ = this->create_wall_timer(
                 std::chrono::duration<double>(1.0 / m_setting_.publish_tree_frequency),
                 std::bind(&SdfMappingNode::CallbackPublishTree, this));
-            m_msg_tree_.header.frame_id = m_setting_.world_frame;
-            m_msg_tree_.header.stamp = this->get_clock()->now();
         }
 
         // publish the surface points used by the sdf mapping
         if (m_setting_.publish_surface_points) {
+            // create the publisher for the surface points
             m_pub_surface_points_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
                 m_setting_.surface_points_topic.path,
                 m_setting_.surface_points_topic.GetQoS());
-            m_pub_surface_points_timer_ = this->create_wall_timer(
-                std::chrono::duration<double>(1.0 / m_setting_.publish_surface_points_frequency),
-                std::bind(&SdfMappingNode::CallbackPublishSurfacePoints, this));
+            // initialize the point cloud message
             m_msg_surface_points_.header.frame_id = m_setting_.world_frame;
             m_msg_surface_points_.header.stamp = this->get_clock()->now();
             m_msg_surface_points_.fields.resize(8);
@@ -749,6 +778,25 @@ public:
             m_msg_surface_points_.is_bigendian = false;  // little-endian
             m_msg_surface_points_.is_dense = false;      // there may be NaN values in the normals
             m_msg_surface_points_.height = 1;            // unorganized point cloud
+            // create a timer to publish the surface points at the specified frequency
+            m_pub_surface_points_timer_ = this->create_wall_timer(
+                std::chrono::duration<double>(1.0 / m_setting_.publish_surface_points_frequency),
+                std::bind(&SdfMappingNode::CallbackPublishSurfacePoints, this));
+        }
+
+        // publish the mesh built by the surface mapping
+        if (m_setting_.publish_mesh) {
+            // create the publisher for the mesh
+            m_pub_mesh_ = this->create_publisher<erl_geometry_msgs::msg::MeshMsg>(
+                m_setting_.mesh_topic.path,
+                m_setting_.mesh_topic.GetQoS());
+            // initialize the mesh message
+            m_msg_mesh_.header.frame_id = m_setting_.world_frame;
+            m_msg_mesh_.header.stamp = this->get_clock()->now();
+            // create a timer to publish the mesh at the specified frequency
+            m_pub_mesh_timer_ = this->create_wall_timer(
+                std::chrono::duration<double>(1.0 / m_setting_.publish_mesh_frequency),
+                std::bind(&SdfMappingNode::CallbackPublishMesh, this));
         }
 
         m_pub_update_time_ = this->create_publisher<std_msgs::msg::Float64>(
@@ -1427,9 +1475,7 @@ private:
 
             // Fill results
             res->results.resize(n);
-            for (int i = 0; i < n; ++i) {
-                res->results[i] = static_cast<double>(prob_occupied[i]);
-            }
+            for (int i = 0; i < n; ++i) { res->results[i] = static_cast<double>(prob_occupied[i]); }
 
             // Fill gradients if requested
             res->gradients.clear();
@@ -1685,6 +1731,51 @@ private:
             ptr += 8;
         }
         m_pub_surface_points_->publish(msg);
+    }
+
+    void
+    CallbackPublishMesh() {
+        if (m_pub_mesh_->get_subscription_count() == 0) { return; }  // no subscribers
+        if (!m_surface_mapping_) { return; }
+
+        std::vector<VectorD> vertices;
+        std::vector<Eigen::Vector<int, Dim>> faces;
+        {
+            auto lock = m_surface_mapping_->GetLockGuard();
+            try {
+                if (!m_surface_mapping_->GetMesh(false, vertices, faces)) { return; }
+            } catch (const std::exception &e) {
+                RCLCPP_WARN(this->get_logger(), "Failed to get mesh: %s", e.what());
+                return;
+            }
+        }
+
+        auto &msg = m_msg_mesh_;
+        msg.header.stamp = this->get_clock()->now();
+        msg.dim = Dim;
+
+        // populate vertices
+        msg.mesh.vertices.resize(vertices.size());
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            msg.mesh.vertices[i].x = static_cast<double>(vertices[i](0));
+            msg.mesh.vertices[i].y = static_cast<double>(vertices[i](1));
+            msg.mesh.vertices[i].z = (Dim == 3) ? static_cast<double>(vertices[i](2)) : 0.0;
+        }
+
+        // populate faces (triangles for 3D, line segments for 2D)
+        msg.mesh.triangles.resize(faces.size());
+        for (size_t i = 0; i < faces.size(); ++i) {
+            msg.mesh.triangles[i].vertex_indices[0] = static_cast<uint32_t>(faces[i](0));
+            msg.mesh.triangles[i].vertex_indices[1] = static_cast<uint32_t>(faces[i](1));
+            msg.mesh.triangles[i].vertex_indices[2] =
+                (Dim == 3) ? static_cast<uint32_t>(faces[i](2)) : 0;
+        }
+
+        // clear colors (no per-vertex or per-face colors from surface mapping)
+        msg.vertex_colors.clear();
+        msg.face_colors.clear();
+
+        m_pub_mesh_->publish(msg);
     }
 };
 
