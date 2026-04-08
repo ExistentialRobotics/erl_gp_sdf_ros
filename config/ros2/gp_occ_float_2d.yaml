@@ -18,6 +18,10 @@
     convert_scan_to_points: false
     scan_in_local_frame: true
     depth_scale: 0.001
+    store_color: false
+    paint_tree_topic.path: ""
+    paint_tree_set_color: true
+    paint_tree_discrete: true
     publish_tree: false
     publish_tree_binary: true
     publish_tree_frequency: 5.0

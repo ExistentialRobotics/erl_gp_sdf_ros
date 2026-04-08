@@ -16,6 +16,10 @@ scan_stride: 1
 convert_scan_to_points: false
 scan_in_local_frame: true
 depth_scale: 0.001
+store_color: false
+paint_tree_topic: ""
+paint_tree_set_color: true
+paint_tree_discrete: true
 publish_tree: false
 publish_tree_binary: true
 publish_tree_frequency: 5.0
@@ -29,6 +33,7 @@ mesh_topic: mesh
 update_time_topic: update_time
 query_time_topic: query_time
 sdf_query_service: sdf_query
+occ_query_service: occ_query
 save_map_service: save_map
 load_map_service: load_map
 save_mesh_service: save_mesh

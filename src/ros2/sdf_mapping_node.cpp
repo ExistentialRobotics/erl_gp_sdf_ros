@@ -107,6 +107,17 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     bool scan_in_local_frame = false;
     // scale for depth image, 0.001 converts mm to m.
     double depth_scale = 0.001;
+    // if true, store per-point colors from the input point cloud in the occupancy tree nodes.
+    // Only effective with BayesianHilbertSurfaceMapping and point cloud input.
+    bool store_color = false;
+    // if the path is non-empty, subscribe to this topic (PointCloud2 with rgb/rgba) and use it to
+    // paint the occupancy tree via PaintTree. When set, store_color is ignored: coloring comes
+    // from this separate topic instead of the scan point cloud.
+    Ros2TopicParams paint_tree_topic{""};
+    // if true, PaintTree overwrites node color (SetColor). If false, it averages (UpdateColor).
+    bool paint_tree_set_color = true;
+    // if true, deduplicate points that fall in the same cell before painting (enables parallel).
+    bool paint_tree_discrete = true;
     // if true, publish the occupancy tree used by the surface mapping.
     bool publish_tree = false;
     // if true, use binary format to publish the occupancy tree, which makes the message smaller.
@@ -162,6 +173,10 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, convert_scan_to_points),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, scan_in_local_frame),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, depth_scale),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, store_color),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, paint_tree_topic),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, paint_tree_set_color),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, paint_tree_discrete),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_tree),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_tree_binary),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_tree_frequency),
@@ -311,6 +326,13 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
             RCLCPP_WARN(logger, "save_mesh_service.path is empty");
             return false;
         }
+        if (store_color && scan_type != ScanType::PointCloud) {
+            RCLCPP_WARN(
+                logger,
+                "store_color is true but scan_type is not 'point_cloud'. "
+                "Color extraction is only supported for point cloud input. Disabling store_color.");
+            store_color = false;
+        }
         return true;
     }
 };
@@ -321,10 +343,13 @@ class SdfMappingNode : public rclcpp::Node {
     using GpSdfMapping = erl::gp_sdf::GpSdfMapping<Dtype, Dim>;
     using GpOccSurfaceMapping = erl::gp_sdf::GpOccSurfaceMapping<Dtype, Dim>;
     using BayesianHilbertSurfaceMapping = erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, Dim>;
+    using ColoredBayesianHilbertSurfaceMapping =
+        erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, Dim, true>;
     using Tree = std::conditional_t<
         Dim == 2,
-        erl::geometry::OccupancyQuadtree<Dtype>,
-        erl::geometry::OccupancyOctree<Dtype>>;
+        erl::geometry::AbstractOccupancyQuadtree<Dtype>,
+        erl::geometry::AbstractOccupancyOctree<Dtype>>;
+    using ColoredTree = typename ColoredBayesianHilbertSurfaceMapping::Tree;
     using Rotation = typename GpSdfMapping::Rotation;
     using Translation = typename GpSdfMapping::Translation;
     using Variances = typename GpSdfMapping::Variances;
@@ -339,6 +364,7 @@ class SdfMappingNode : public rclcpp::Node {
     using VectorX = Eigen::VectorX<Dtype>;
     using MatrixX = Eigen::MatrixX<Dtype>;
     using Matrix3X = Eigen::Matrix3X<Dtype>;
+    using ColorMatrix = Eigen::Matrix<uint8_t, 4, Eigen::Dynamic>;
     using RangeSensorFrame3D = erl::geometry::RangeSensorFrame3D<Dtype>;
     using LidarFrame2D = erl::geometry::LidarFrame2D<Dtype>;
     using LidarFrame3D = erl::geometry::LidarFrame3D<Dtype>;
@@ -350,6 +376,7 @@ class SdfMappingNode : public rclcpp::Node {
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr m_sub_laser_scan_;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr m_sub_point_cloud_;
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr m_sub_depth_image_;
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr m_sub_paint_tree_;
     rclcpp::Service<erl_gp_sdf_msgs::srv::SdfQuery>::SharedPtr m_srv_query_sdf_;
     rclcpp::Service<erl_gp_sdf_msgs::srv::OccQuery>::SharedPtr m_srv_occ_query_;
     rclcpp::Service<erl_gp_sdf_msgs::srv::SaveMap>::SharedPtr m_srv_load_map_;
@@ -371,9 +398,11 @@ class SdfMappingNode : public rclcpp::Node {
 
     std::shared_ptr<YamlableBase> m_surface_mapping_cfg_ = nullptr;
     std::shared_ptr<AbstractSurfaceMapping> m_surface_mapping_ = nullptr;
+    std::shared_ptr<ColoredBayesianHilbertSurfaceMapping> m_colored_bhm_ = nullptr;
     std::shared_ptr<typename GpSdfMapping::Setting> m_sdf_mapping_cfg_ = nullptr;
     std::shared_ptr<GpSdfMapping> m_sdf_mapping_ = nullptr;
-    std::shared_ptr<const Tree> m_tree_ = nullptr;  // used to store the occupancy tree
+    std::shared_ptr<const Tree> m_tree_ = nullptr;           // used to store the occupancy tree
+    std::shared_ptr<ColoredTree> m_colored_tree_ = nullptr;  // non-const for PaintTree
 
     // for the sensor pose
 
@@ -391,6 +420,10 @@ class SdfMappingNode : public rclcpp::Node {
 
     std::shared_ptr<LidarFrame2D> m_scan_frame_2d_ = nullptr;
     std::shared_ptr<RangeSensorFrame3D> m_scan_frame_3d_ = nullptr;
+
+    // for color storage
+    ColorMatrix m_point_colors_;  // 4xN RGBA, populated when store_color is true
+    bool m_received_colors_ = false;
 
 public:
     SdfMappingNode()
@@ -465,6 +498,26 @@ public:
         m_surface_mapping_ =
             AbstractSurfaceMapping::Create(m_setting_.surface_mapping_type, m_surface_mapping_cfg_);
         m_sdf_mapping_ = std::make_shared<GpSdfMapping>(m_sdf_mapping_cfg_, m_surface_mapping_);
+        if (!m_setting_.paint_tree_topic.path.empty()) {
+            if (m_setting_.store_color) {
+                RCLCPP_WARN(
+                    logger,
+                    "paint_tree_topic is set, ignoring store_color. "
+                    "Coloring will come from the paint_tree_topic instead.");
+                m_setting_.store_color = false;
+            }
+        }
+        if (m_setting_.store_color) {
+            m_colored_bhm_ =
+                std::dynamic_pointer_cast<ColoredBayesianHilbertSurfaceMapping>(m_surface_mapping_);
+            if (!m_colored_bhm_) {
+                RCLCPP_WARN(
+                    logger,
+                    "store_color is true but surface mapping does not support colored updates. "
+                    "Disabling store_color.");
+                m_setting_.store_color = false;
+            }
+        }
         RCLCPP_INFO(
             logger,
             "Created surface mapping of type %s",
@@ -541,6 +594,34 @@ public:
                     m_setting_.scan_topic.GetQoS(),
                     std::bind(&SdfMappingNode::CallbackDepthImage, this, std::placeholders::_1));
                 break;
+        }
+
+        if constexpr (Dim == 3) {
+            if (!m_setting_.paint_tree_topic.path.empty()) {
+                // set up the colored tree pointer before subscribing
+                auto colored_bhm = std::dynamic_pointer_cast<ColoredBayesianHilbertSurfaceMapping>(
+                    m_surface_mapping_);
+                if (colored_bhm) {
+                    m_colored_tree_ = colored_bhm->GetTree();
+                    RCLCPP_INFO(
+                        logger,
+                        "Subscribing to %s for tree painting",
+                        m_setting_.paint_tree_topic.path.c_str());
+                    m_sub_paint_tree_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
+                        m_setting_.paint_tree_topic.path,
+                        m_setting_.paint_tree_topic.GetQoS(),
+                        std::bind(&SdfMappingNode::CallbackPaintTree, this, std::placeholders::_1));
+                } else {
+                    RCLCPP_WARN(
+                        logger,
+                        "paint_tree_topic is set but surface mapping does not use a colored "
+                        "tree. Ignoring paint_tree_topic.");
+                }
+            }
+        } else {  // constexpr Dim == 2
+            if (!m_setting_.paint_tree_topic.path.empty()) {
+                RCLCPP_WARN(logger, "paint_tree_topic is only supported for 3D. Ignoring.");
+            }
         }
 
         if (m_setting_.convert_scan_to_points) {
@@ -1039,6 +1120,157 @@ private:
         TryUpdate(msg->header.stamp);
     }
 
+    void
+    CallbackPaintTree(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
+        if constexpr (Dim != 3) {
+            (void) msg;
+            return;
+        } else {  // NOLINT
+            auto logger = this->get_logger();
+            if (!m_colored_tree_) {
+                RCLCPP_WARN_ONCE(
+                    logger,
+                    "PaintTree callback: colored tree not available, skipping.");
+                return;
+            }
+
+            // look up transform from point cloud frame to world frame
+            geometry_msgs::msg::TransformStamped tf_stamped;
+            try {
+                tf_stamped = m_tf_buffer_->lookupTransform(
+                    m_setting_.world_frame,
+                    msg->header.frame_id,
+                    msg->header.stamp,
+                    rclcpp::Duration::from_seconds(0.5));
+            } catch (tf2::TransformException &ex) {
+                RCLCPP_WARN(logger, "PaintTree: TF lookup failed: %s", ex.what());
+                return;
+            }
+            const auto &tf = tf_stamped.transform;
+            const Matrix3 rotation =
+                Eigen::Quaternion<Dtype>(tf.rotation.w, tf.rotation.x, tf.rotation.y, tf.rotation.z)
+                    .toRotationMatrix();
+            const Vector3 translation(tf.translation.x, tf.translation.y, tf.translation.z);
+
+            const auto &cloud = *msg;
+            if (cloud.fields.empty() || cloud.data.empty()) { return; }
+            if (cloud.data.size() != cloud.width * cloud.height * cloud.point_step) { return; }
+
+            // validate x, y, z fields
+            const int32_t xi = rviz_default_plugins::findChannelIndex(msg, "x");
+            const int32_t yi = rviz_default_plugins::findChannelIndex(msg, "y");
+            const int32_t zi = rviz_default_plugins::findChannelIndex(msg, "z");
+            if (xi < 0 || yi < 0 || zi < 0) {
+                RCLCPP_WARN(logger, "PaintTree: point cloud has no x/y/z fields");
+                return;
+            }
+            const uint8_t xtype = cloud.fields[xi].datatype;
+            if (cloud.fields[yi].datatype != xtype || cloud.fields[zi].datatype != xtype) {
+                RCLCPP_WARN(logger, "PaintTree: x/y/z fields have different data types");
+                return;
+            }
+            const uint32_t xoff = cloud.fields[xi].offset;
+            const uint32_t yoff = cloud.fields[yi].offset;
+            const uint32_t zoff = cloud.fields[zi].offset;
+
+            // look for rgb/rgba field
+            int32_t rgb_field_idx = rviz_default_plugins::findChannelIndex(msg, "rgb");
+            bool has_alpha = false;
+            if (rgb_field_idx < 0) {
+                rgb_field_idx = rviz_default_plugins::findChannelIndex(msg, "rgba");
+                has_alpha = (rgb_field_idx >= 0);
+            }
+            uint32_t rgb_off = 0;
+            uint8_t rgb_type = 0;
+            if (rgb_field_idx >= 0) {
+                rgb_off = cloud.fields[rgb_field_idx].offset;
+                rgb_type = cloud.fields[rgb_field_idx].datatype;
+                if (rgb_type != sensor_msgs::msg::PointField::FLOAT32 &&
+                    rgb_type != sensor_msgs::msg::PointField::UINT32) {
+                    RCLCPP_WARN_ONCE(
+                        logger,
+                        "PaintTree: unsupported rgb field type %d, skipping.",
+                        rgb_type);
+                    return;
+                }
+            } else {
+                RCLCPP_WARN_ONCE(logger, "PaintTree: point cloud has no rgb/rgba field, skipping.");
+                return;
+            }
+
+            const auto width = static_cast<int>(cloud.width);
+            const auto height = static_cast<int>(cloud.height);
+            const uint32_t point_step = cloud.point_step;
+            const uint32_t row_step = cloud.row_step;
+            const long max_points = static_cast<long>(width) * height;
+
+            // extract points and colors
+            Matrix3X points(3, max_points);
+            ColorMatrix colors(4, max_points);
+            long count = 0;
+
+            auto extract_point = [&](const uint8_t *ptr, auto read_coord) {
+                Dtype x = static_cast<Dtype>(read_coord(ptr + xoff));
+                Dtype y = static_cast<Dtype>(read_coord(ptr + yoff));
+                Dtype z = static_cast<Dtype>(read_coord(ptr + zoff));
+                if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) { return; }
+                auto point = points.col(count);
+                point[0] = x;
+                point[1] = y;
+                point[2] = z;
+                const auto *bgra = ptr + rgb_off;
+                auto color = colors.col(count);
+                color[0] = bgra[2];  // R
+                color[1] = bgra[1];  // G
+                color[2] = bgra[0];  // B
+                color[3] = has_alpha ? bgra[3] : static_cast<uint8_t>(255);
+                ++count;
+            };
+
+            if (xtype == sensor_msgs::msg::PointField::FLOAT32) {
+                for (int h = 0; h < height; ++h) {
+                    const uint8_t *ptr = cloud.data.data() + h * row_step;
+                    for (int w = 0; w < width; ++w) {
+                        extract_point(ptr, [](const uint8_t *p) {
+                            return *reinterpret_cast<const float *>(p);
+                        });
+                        ptr += point_step;
+                    }
+                }
+            } else if (xtype == sensor_msgs::msg::PointField::FLOAT64) {
+                for (int h = 0; h < height; ++h) {
+                    const uint8_t *ptr = cloud.data.data() + h * row_step;
+                    for (int w = 0; w < width; ++w) {
+                        extract_point(ptr, [](const uint8_t *p) {
+                            return *reinterpret_cast<const double *>(p);
+                        });
+                        ptr += point_step;
+                    }
+                }
+            } else {
+                RCLCPP_WARN(logger, "PaintTree: unsupported point field type %d", xtype);
+                return;
+            }
+
+            if (count == 0) { return; }
+            points.conservativeResize(3, count);
+            colors.conservativeResize(4, count);
+
+            // transform points to world frame
+            points = (rotation * points).colwise() + translation;
+
+            // paint the tree under lock
+            {
+                auto lock = m_surface_mapping_->GetLockGuard();
+                m_colored_tree_->PaintTree(
+                    points,
+                    colors,
+                    m_setting_.paint_tree_set_color,
+                    m_setting_.paint_tree_discrete);
+            }
+        }  // else (Dim == 3)
+    }
+
     bool
     GetScanFromLaserScan(MatrixX &scan) {
         if (!m_lidar_scan_2d_) {
@@ -1108,6 +1340,42 @@ private:
         const uint32_t xoff = cloud.fields[xi].offset;
         const uint32_t yoff = cloud.fields[yi].offset;
         const uint32_t zoff = cloud.fields[zi].offset;
+
+        // color extraction setup
+        m_received_colors_ = false;
+        bool extract_color = m_setting_.store_color;
+        int32_t rgb_field_idx = -1;
+        uint32_t rgb_off = 0;
+        uint8_t rgb_type = 0;
+        bool has_alpha = false;
+        if (extract_color) {
+            // try "rgb", then "rgba"
+            rgb_field_idx = rviz_default_plugins::findChannelIndex(m_lidar_scan_3d_, "rgb");
+            if (rgb_field_idx < 0) {
+                rgb_field_idx = rviz_default_plugins::findChannelIndex(m_lidar_scan_3d_, "rgba");
+                has_alpha = (rgb_field_idx >= 0);
+            }
+            if (rgb_field_idx >= 0) {
+                rgb_off = cloud.fields[rgb_field_idx].offset;
+                rgb_type = cloud.fields[rgb_field_idx].datatype;
+                if (rgb_type != sensor_msgs::msg::PointField::FLOAT32 &&
+                    rgb_type != sensor_msgs::msg::PointField::UINT32) {
+                    RCLCPP_WARN_ONCE(
+                        logger,
+                        "store_color: unsupported rgb field type %d, disabling color extraction.",
+                        rgb_type);
+                    rgb_field_idx = -1;
+                }
+            }
+            if (rgb_field_idx < 0) {
+                RCLCPP_WARN_ONCE(
+                    logger,
+                    "store_color is true but point cloud has no usable rgb/rgba field. "
+                    "Skipping color extraction for this message.");
+                extract_color = false;
+            }
+        }
+
         uint32_t point_step = cloud.point_step;
         uint32_t row_step = cloud.row_step;
         auto width = static_cast<int>(cloud.width);
@@ -1120,7 +1388,23 @@ private:
             row_step *= scan_stride;
         }
         scan.resize(3, width * height);
+        if (extract_color && m_point_colors_.cols() < scan.cols()) {
+            m_point_colors_.resize(4, scan.cols());
+        }
         long point_count = 0;
+
+        // lambda to extract RGBA from a point's data pointer
+        auto extract_rgba = [&](const uint8_t *ptr, long idx) {
+            if (!extract_color) { return; }
+            // rgb_field_idx and rgb_type are guaranteed valid when extract_color is true
+            const auto *bgra = ptr + rgb_off;
+            auto point_color = m_point_colors_.col(idx);
+            point_color[0] = bgra[2];  // R
+            point_color[1] = bgra[1];  // G
+            point_color[2] = bgra[0];  // B
+            point_color[3] = has_alpha ? bgra[3] : static_cast<uint8_t>(255);
+        };
+
         if (xtype == sensor_msgs::msg::PointField::FLOAT32) {
             for (int h = 0; h < height; ++h) {
                 const uint8_t *ptr = cloud.data.data() + h * row_step;
@@ -1131,6 +1415,7 @@ private:
                     p_out[2] = static_cast<Dtype>(*reinterpret_cast<const float *>(ptr + zoff));
                     if (std::isfinite(p_out[0]) && std::isfinite(p_out[1]) &&
                         std::isfinite(p_out[2])) {
+                        extract_rgba(ptr, point_count);
                         ++point_count;
                     }
                     ptr += point_step;
@@ -1146,6 +1431,7 @@ private:
                     p_out[2] = static_cast<Dtype>(*reinterpret_cast<const double *>(ptr + zoff));
                     if (std::isfinite(p_out[0]) && std::isfinite(p_out[1]) &&
                         std::isfinite(p_out[2])) {
+                        extract_rgba(ptr, point_count);
                         ++point_count;
                     }
                     ptr += point_step;
@@ -1162,6 +1448,10 @@ private:
             return false;
         }
         scan.conservativeResize(3, point_count);
+        if (extract_color) {
+            m_point_colors_.conservativeResize(4, point_count);
+            m_received_colors_ = true;
+        }
         m_lidar_scan_3d_.reset();
         return true;
     }
@@ -1297,7 +1587,19 @@ private:
         bool success;
         {
             ERL_BLOCK_TIMER_MSG_TIME("Surface mapping update", surf_mapping_time);
-            success = m_surface_mapping_->Update(rotation, translation, scan, are_points, in_local);
+            if (m_received_colors_) {
+                // Use the color-aware Update path (m_colored_bhm_ is validated at init)
+                success = m_colored_bhm_->Update(
+                    rotation,
+                    translation,
+                    scan,
+                    m_point_colors_,
+                    are_points,
+                    in_local);
+            } else {
+                success =
+                    m_surface_mapping_->Update(rotation, translation, scan, are_points, in_local);
+            }
         }
         {
             double time_budget_us = 1e6 / m_sdf_mapping_cfg_->update_hz;  // us
@@ -1551,7 +1853,7 @@ private:
         }
 
         res->success = false;
-        res->reason = "no occupancy mapping backend available";
+        res->reason = "no occupancy mapping frontend available";
     }
 
     void
@@ -1624,12 +1926,20 @@ private:
         std::filesystem::path mesh_file = req->name;
         mesh_file = std::filesystem::absolute(mesh_file);
         std::filesystem::create_directories(mesh_file.parent_path());
+        using Color = typename AbstractSurfaceMapping::Color;
         std::vector<VectorD> vertices;
         std::vector<Eigen::Vector<int, Dim>> faces;
+        std::vector<Color> vertex_colors;
+        const bool has_color = m_setting_.store_color || m_sub_paint_tree_;
         {
             auto lock = m_surface_mapping_->GetLockGuard();
             try {
-                res->success = m_surface_mapping_->GetMesh(false, vertices, faces);
+                if (has_color) {
+                    res->success =
+                        m_surface_mapping_->GetMesh(false, vertices, faces, vertex_colors);
+                } else {
+                    res->success = m_surface_mapping_->GetMesh(false, vertices, faces);
+                }
             } catch (const std::exception &e) {
                 RCLCPP_WARN(this->get_logger(), "Failed to get mesh: %s", e.what());
                 res->success = false;
@@ -1668,10 +1978,19 @@ private:
                     static_cast<int>(faces[i](1)),
                     static_cast<int>(faces[i](2)));
             }
+            if (has_color && vertex_colors.size() == vertices.size()) {
+                mesh.vertex_colors_.resize(vertex_colors.size());
+                for (size_t i = 0; i < vertex_colors.size(); ++i) {
+                    mesh.vertex_colors_[i] = Eigen::Vector3d(
+                        vertex_colors[i][0] / 255.0,
+                        vertex_colors[i][1] / 255.0,
+                        vertex_colors[i][2] / 255.0);
+                }
+            }
             constexpr bool write_ascii = false;
             constexpr bool compressed = false;
             constexpr bool write_vertex_normals = true;
-            constexpr bool write_vertex_colors = false;
+            const bool write_vertex_colors = !mesh.vertex_colors_.empty();
             constexpr bool write_triangle_uvs = false;
             constexpr bool print_progress = false;
             res->success &= open3d::io::WriteTriangleMeshToPLY(
@@ -1738,12 +2057,20 @@ private:
         if (m_pub_mesh_->get_subscription_count() == 0) { return; }  // no subscribers
         if (!m_surface_mapping_) { return; }
 
+        using Color = typename AbstractSurfaceMapping::Color;
         std::vector<VectorD> vertices;
         std::vector<Eigen::Vector<int, Dim>> faces;
+        std::vector<Color> vertex_colors;
         {
             auto lock = m_surface_mapping_->GetLockGuard();
             try {
-                if (!m_surface_mapping_->GetMesh(false, vertices, faces)) { return; }
+                if (m_setting_.store_color || m_sub_paint_tree_) {
+                    if (!m_surface_mapping_->GetMesh(false, vertices, faces, vertex_colors)) {
+                        return;
+                    }
+                } else {
+                    if (!m_surface_mapping_->GetMesh(false, vertices, faces)) { return; }
+                }
             } catch (const std::exception &e) {
                 RCLCPP_WARN(this->get_logger(), "Failed to get mesh: %s", e.what());
                 return;
@@ -1757,23 +2084,34 @@ private:
         // populate vertices
         msg.mesh.vertices.resize(vertices.size());
         for (size_t i = 0; i < vertices.size(); ++i) {
-            msg.mesh.vertices[i].x = static_cast<double>(vertices[i](0));
-            msg.mesh.vertices[i].y = static_cast<double>(vertices[i](1));
-            msg.mesh.vertices[i].z = (Dim == 3) ? static_cast<double>(vertices[i](2)) : 0.0;
+            msg.mesh.vertices[i].x = static_cast<double>(vertices[i][0]);
+            msg.mesh.vertices[i].y = static_cast<double>(vertices[i][1]);
+            msg.mesh.vertices[i].z = (Dim == 3) ? static_cast<double>(vertices[i][2]) : 0.0;
         }
 
         // populate faces (triangles for 3D, line segments for 2D)
         msg.mesh.triangles.resize(faces.size());
         for (size_t i = 0; i < faces.size(); ++i) {
-            msg.mesh.triangles[i].vertex_indices[0] = static_cast<uint32_t>(faces[i](0));
-            msg.mesh.triangles[i].vertex_indices[1] = static_cast<uint32_t>(faces[i](1));
+            msg.mesh.triangles[i].vertex_indices[0] = static_cast<uint32_t>(faces[i][0]);
+            msg.mesh.triangles[i].vertex_indices[1] = static_cast<uint32_t>(faces[i][1]);
             msg.mesh.triangles[i].vertex_indices[2] =
-                (Dim == 3) ? static_cast<uint32_t>(faces[i](2)) : 0;
+                (Dim == 3) ? static_cast<uint32_t>(faces[i][2]) : 0;
         }
 
-        // clear colors (no per-vertex or per-face colors from surface mapping)
-        msg.vertex_colors.clear();
-        msg.face_colors.clear();
+        // populate vertex colors if available
+        if (m_setting_.store_color && !vertex_colors.empty()) {
+            msg.vertex_colors.resize(vertex_colors.size());
+            for (size_t i = 0; i < vertex_colors.size(); ++i) {
+                msg.vertex_colors[i].r = static_cast<float>(vertex_colors[i][0]) / 255.0f;
+                msg.vertex_colors[i].g = static_cast<float>(vertex_colors[i][1]) / 255.0f;
+                msg.vertex_colors[i].b = static_cast<float>(vertex_colors[i][2]) / 255.0f;
+                msg.vertex_colors[i].a = static_cast<float>(vertex_colors[i][3]) / 255.0f;
+            }
+            msg.face_colors.clear();
+        } else {
+            msg.vertex_colors.clear();
+            msg.face_colors.clear();
+        }
 
         m_pub_mesh_->publish(msg);
     }
