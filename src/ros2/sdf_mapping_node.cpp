@@ -497,6 +497,14 @@ public:
         // create the surface mapping
         m_surface_mapping_ =
             AbstractSurfaceMapping::Create(m_setting_.surface_mapping_type, m_surface_mapping_cfg_);
+        if (!m_surface_mapping_) {
+            RCLCPP_FATAL(
+                logger,
+                "Failed to create surface mapping of type %s",
+                m_setting_.surface_mapping_type.c_str());
+            rclcpp::shutdown();
+            return;
+        }
         m_sdf_mapping_ = std::make_shared<GpSdfMapping>(m_sdf_mapping_cfg_, m_surface_mapping_);
         if (!m_setting_.paint_tree_topic.path.empty()) {
             if (m_setting_.store_color) {
@@ -510,7 +518,13 @@ public:
         if (m_setting_.store_color) {
             m_colored_bhm_ =
                 std::dynamic_pointer_cast<ColoredBayesianHilbertSurfaceMapping>(m_surface_mapping_);
-            if (!m_colored_bhm_) {
+            if (m_colored_bhm_) {
+                m_colored_tree_ = m_colored_bhm_->GetTree();
+                RCLCPP_INFO(
+                    logger,
+                    "store_color is true and surface mapping supports colored updates. "
+                    "Node colors will be stored in the occupancy tree.");
+            } else {
                 RCLCPP_WARN(
                     logger,
                     "store_color is true but surface mapping does not support colored updates. "
@@ -599,10 +613,10 @@ public:
         if constexpr (Dim == 3) {
             if (!m_setting_.paint_tree_topic.path.empty()) {
                 // set up the colored tree pointer before subscribing
-                auto colored_bhm = std::dynamic_pointer_cast<ColoredBayesianHilbertSurfaceMapping>(
+                m_colored_bhm_ = std::dynamic_pointer_cast<ColoredBayesianHilbertSurfaceMapping>(
                     m_surface_mapping_);
-                if (colored_bhm) {
-                    m_colored_tree_ = colored_bhm->GetTree();
+                if (m_colored_bhm_) {
+                    m_colored_tree_ = m_colored_bhm_->GetTree();
                     RCLCPP_INFO(
                         logger,
                         "Subscribing to %s for tree painting",
@@ -943,6 +957,7 @@ private:
 
     std::shared_ptr<const Tree>
     GetTreeFromBayesianHilbertSurfaceMapping() {
+        if (m_colored_bhm_) { return m_colored_tree_; }
         auto mapping = std::dynamic_pointer_cast<BayesianHilbertSurfaceMapping>(m_surface_mapping_);
         if (!mapping) { return nullptr; }
         return mapping->GetTree();
@@ -1732,6 +1747,57 @@ private:
         erl::common::BlockTimerRecords::PrintRecords();
     }
 
+    template<typename BhmType>
+    void
+    FillBhmSdfQueryResponse(
+        const std::shared_ptr<BhmType> &bhm,
+        const MatrixDX &positions,
+        int n,
+        const std::string &mode,
+        bool compute_gradient,
+        std::shared_ptr<erl_gp_sdf_msgs::srv::OccQuery::Response> &res) {
+
+        auto lock = bhm->GetLockGuard();  // lock the surface mapping for thread safety
+        (void) lock;                      // avoid unused variable warning
+
+        VectorX prob_occupied(n);
+        MatrixDX gradients(Dim, n);
+
+        bhm->Predict(
+            positions,
+            /*logodd=*/(mode == "logodd"),
+            /*compute_gradient=*/compute_gradient,
+            /*gradient_with_sigmoid=*/false,
+            /*parallel=*/true,
+            prob_occupied,
+            gradients);
+
+        // Fill results
+        res->results.resize(n);
+        for (int i = 0; i < n; ++i) { res->results[i] = static_cast<double>(prob_occupied[i]); }
+
+        // Fill gradients if requested
+        res->gradients.clear();
+        if (compute_gradient) {
+            res->gradients.resize(n);
+            if constexpr (Dim == 2) {
+                for (int i = 0; i < n; ++i) {
+                    res->gradients[i].x = static_cast<double>(gradients(0, i));
+                    res->gradients[i].y = static_cast<double>(gradients(1, i));
+                    res->gradients[i].z = 0.0;
+                }
+            } else {
+                for (int i = 0; i < n; ++i) {
+                    res->gradients[i].x = static_cast<double>(gradients(0, i));
+                    res->gradients[i].y = static_cast<double>(gradients(1, i));
+                    res->gradients[i].z = static_cast<double>(gradients(2, i));
+                }
+            }
+        }
+
+        res->success = true;
+    }
+
     void
     CallbackOccQuery(
         const std::shared_ptr<erl_gp_sdf_msgs::srv::OccQuery::Request> req,
@@ -1757,48 +1823,14 @@ private:
 
         res->dim = Dim;
 
-        // Try BayesianHilbertSurfaceMapping first
+        // Try BayesianHilbertSurfaceMapping (colored or non-colored)
+        if (m_colored_bhm_) {
+            FillBhmSdfQueryResponse(m_colored_bhm_, positions, n, mode, compute_gradient, res);
+            return;
+        }
         auto bhm = std::dynamic_pointer_cast<BayesianHilbertSurfaceMapping>(m_surface_mapping_);
         if (bhm) {
-            auto lock = bhm->GetLockGuard();  // lock the surface mapping for thread safety
-            (void) lock;                      // avoid unused variable warning
-
-            VectorX prob_occupied(n);
-            MatrixDX gradients(Dim, n);
-
-            bhm->Predict(
-                positions,
-                /*logodd=*/(mode == "logodd"),
-                /*compute_gradient=*/compute_gradient,
-                /*gradient_with_sigmoid=*/false,
-                /*parallel=*/true,
-                prob_occupied,
-                gradients);
-
-            // Fill results
-            res->results.resize(n);
-            for (int i = 0; i < n; ++i) { res->results[i] = static_cast<double>(prob_occupied[i]); }
-
-            // Fill gradients if requested
-            res->gradients.clear();
-            if (compute_gradient) {
-                res->gradients.resize(n);
-                if (Dim == 2) {
-                    for (int i = 0; i < n; ++i) {
-                        res->gradients[i].x = static_cast<double>(gradients(0, i));
-                        res->gradients[i].y = static_cast<double>(gradients(1, i));
-                        res->gradients[i].z = 0.0;
-                    }
-                } else {
-                    for (int i = 0; i < n; ++i) {
-                        res->gradients[i].x = static_cast<double>(gradients(0, i));
-                        res->gradients[i].y = static_cast<double>(gradients(1, i));
-                        res->gradients[i].z = static_cast<double>(gradients(2, i));
-                    }
-                }
-            }
-
-            res->success = true;
+            FillBhmSdfQueryResponse(bhm, positions, n, mode, compute_gradient, res);
             return;
         }
 
@@ -2099,7 +2131,7 @@ private:
         }
 
         // populate vertex colors if available
-        if (m_setting_.store_color && !vertex_colors.empty()) {
+        if (!vertex_colors.empty()) {
             msg.vertex_colors.resize(vertex_colors.size());
             for (size_t i = 0; i < vertex_colors.size(); ++i) {
                 msg.vertex_colors[i].r = static_cast<float>(vertex_colors[i][0]) / 255.0f;
