@@ -1439,6 +1439,10 @@ private:
                 scan = scan_points;
             } else {
                 m_scan_frame_3d_->UpdateRanges(MatrixX(rotation), VectorX(translation), scan);
+                if (m_scan_frame_3d_->GetNumHitRays() == 0) {
+                    ROS_WARN("No valid points. Skipping update.");
+                    return;
+                }
                 if (in_local) {
                     scan = Eigen::Map<const Matrix3X>(
                         m_scan_frame_3d_->GetHitPointsFrame().data()->data(),
@@ -1475,9 +1479,8 @@ private:
         {
             double time_budget_us = 1e6 / m_sdf_mapping_cfg_->update_hz;  // us
             ERL_BLOCK_TIMER_MSG("Update SDF GPs");
-            if (ok) { m_sdf_mapping_->UpdateGpSdf(time_budget_us - surf_mapping_time * 1000); }
+            m_sdf_mapping_->UpdateGpSdf(time_budget_us - surf_mapping_time * 1000);
         }
-        // bool success = m_sdf_mapping_->Update(rotation, translation, scan, are_points, in_local);
         auto t2 = ros::WallTime::now();
         m_msg_update_time_.data = (t2 - t1).toSec();
         m_pub_update_time_.publish(m_msg_update_time_);

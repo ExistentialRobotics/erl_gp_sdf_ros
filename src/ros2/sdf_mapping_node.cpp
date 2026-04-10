@@ -1583,6 +1583,10 @@ private:
                 scan = scan_points;
             } else {
                 m_scan_frame_3d_->UpdateRanges(MatrixX(rotation), VectorX(translation), scan);
+                if (m_scan_frame_3d_->GetNumHitRays() == 0) {
+                    RCLCPP_WARN(this->get_logger(), "No valid points. Skipping update.");
+                    return;
+                }
                 if (in_local) {
                     scan = Eigen::Map<const Matrix3X>(
                         m_scan_frame_3d_->GetHitPointsFrame().data()->data(),
@@ -1619,9 +1623,9 @@ private:
         {
             double time_budget_us = 1e6 / m_sdf_mapping_cfg_->update_hz;  // us
             ERL_BLOCK_TIMER_MSG("Update SDF GPs");
-            if (ok) { m_sdf_mapping_->UpdateGpSdf(time_budget_us - surf_mapping_time * 1000); }
+            m_sdf_mapping_->UpdateGpSdf(time_budget_us - surf_mapping_time * 1000);
         }
-        // bool success = m_sdf_mapping_->Update(rotation, translation, scan, are_points, in_local);
+
         auto t2 = this->get_clock()->now();
         m_msg_update_time_.data = (t2 - t1).seconds();
         m_pub_update_time_->publish(m_msg_update_time_);
@@ -1634,6 +1638,8 @@ private:
     CallbackSdfQuery(
         const std::shared_ptr<erl_gp_sdf_msgs::srv::SdfQuery::Request> req,
         std::shared_ptr<erl_gp_sdf_msgs::srv::SdfQuery::Response> res) {
+
+        res->success = false;
 
         if (!m_sdf_mapping_) {
             RCLCPP_WARN(this->get_logger(), "SDF mapping is not initialized");
