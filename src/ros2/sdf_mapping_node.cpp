@@ -13,11 +13,13 @@
 #include "erl_gp_sdf/bayesian_hilbert_surface_mapping.hpp"
 #include "erl_gp_sdf/gp_occ_surface_mapping.hpp"
 #include "erl_gp_sdf/gp_sdf_mapping.hpp"
+#include "erl_gp_sdf/height_map_projector.hpp"
 #include "erl_gp_sdf_msgs/srv/occ_query.hpp"
 #include "erl_gp_sdf_msgs/srv/save_map.hpp"
 #include "erl_gp_sdf_msgs/srv/sdf_query.hpp"
 
 #include <geometry_msgs/msg/vector3.hpp>
+#include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <open3d/geometry/LineSet.h>
 #include <open3d/geometry/TriangleMesh.h>
@@ -152,6 +154,15 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     Ros2TopicParams load_map_service{"load_map", "services"};
     // parameters of the service to save the mesh
     Ros2TopicParams save_mesh_service{"save_mesh", "services"};
+    // if true, publish the 2D occupancy grid projected from the 3D height map (Dim==3 only).
+    bool publish_occupancy_grid = false;
+    // frequency to publish the occupancy grid
+    double publish_occupancy_grid_frequency = 5.0;
+    // parameters of the topic to publish the occupancy grid
+    Ros2TopicParams occupancy_grid_topic{"occupancy_grid"};
+    // path to the yaml file for the height map projector setting (required when
+    // publish_occupancy_grid is true)
+    std::string height_map_projector_setting_file = "";
 
     ERL_REFLECT_SCHEMA(
         SdfMappingNodeConfig,
@@ -193,7 +204,11 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, occ_query_service),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_map_service),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, load_map_service),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_mesh_service));
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_mesh_service),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_occupancy_grid),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_occupancy_grid_frequency),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, occupancy_grid_topic),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, height_map_projector_setting_file));
 
     bool
     PostDeserialization() override {
@@ -326,6 +341,32 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
             RCLCPP_WARN(logger, "save_mesh_service.path is empty");
             return false;
         }
+        if (publish_occupancy_grid) {
+            if (occupancy_grid_topic.path.empty()) {
+                RCLCPP_WARN(
+                    logger,
+                    "occupancy_grid_topic.path is empty but publish_occupancy_grid is true");
+                return false;
+            }
+            if (publish_occupancy_grid_frequency <= 0.0) {
+                RCLCPP_WARN(logger, "publish_occupancy_grid_frequency must be positive");
+                return false;
+            }
+            if (height_map_projector_setting_file.empty()) {
+                RCLCPP_WARN(
+                    logger,
+                    "height_map_projector_setting_file is empty but publish_occupancy_grid is "
+                    "true");
+                return false;
+            }
+            if (!std::filesystem::exists(height_map_projector_setting_file)) {
+                RCLCPP_WARN(
+                    logger,
+                    "height_map_projector_setting_file %s does not exist",
+                    height_map_projector_setting_file.c_str());
+                return false;
+            }
+        }
         if (store_color && scan_type != ScanType::PointCloud) {
             RCLCPP_WARN(
                 logger,
@@ -387,14 +428,17 @@ class SdfMappingNode : public rclcpp::Node {
     rclcpp::Publisher<erl_geometry_msgs::msg::MeshMsg>::SharedPtr m_pub_mesh_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr m_pub_update_time_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr m_pub_query_time_;
+    rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr m_pub_occupancy_grid_;
     rclcpp::TimerBase::SharedPtr m_pub_tree_timer_;
     rclcpp::TimerBase::SharedPtr m_pub_surface_points_timer_;
     rclcpp::TimerBase::SharedPtr m_pub_mesh_timer_;
+    rclcpp::TimerBase::SharedPtr m_pub_occupancy_grid_timer_;
     erl_geometry_msgs::msg::OccupancyTreeMsg m_msg_tree_;
     sensor_msgs::msg::PointCloud2 m_msg_surface_points_;
     erl_geometry_msgs::msg::MeshMsg m_msg_mesh_;
     std_msgs::msg::Float64 m_msg_update_time_;
     std_msgs::msg::Float64 m_msg_query_time_;
+    nav_msgs::msg::OccupancyGrid m_msg_occupancy_grid_;
 
     std::shared_ptr<YamlableBase> m_surface_mapping_cfg_ = nullptr;
     std::shared_ptr<AbstractSurfaceMapping> m_surface_mapping_ = nullptr;
@@ -403,6 +447,9 @@ class SdfMappingNode : public rclcpp::Node {
     std::shared_ptr<GpSdfMapping> m_sdf_mapping_ = nullptr;
     std::shared_ptr<const Tree> m_tree_ = nullptr;           // used to store the occupancy tree
     std::shared_ptr<ColoredTree> m_colored_tree_ = nullptr;  // non-const for PaintTree
+    std::unique_ptr<erl::gp_sdf::HeightMapProjector<Dtype>> m_height_map_projector_ = nullptr;
+    std::unique_ptr<erl::gp_sdf::HeightMapProjector<Dtype, true>> m_colored_height_map_projector_ =
+        nullptr;
 
     // for the sensor pose
 
@@ -892,6 +939,44 @@ public:
             m_pub_mesh_timer_ = this->create_wall_timer(
                 std::chrono::duration<double>(1.0 / m_setting_.publish_mesh_frequency),
                 std::bind(&SdfMappingNode::CallbackPublishMesh, this));
+        }
+
+        // publish the 2D occupancy grid projected from the 3D height map
+        if constexpr (Dim == 3) {
+            if (m_setting_.publish_occupancy_grid) {
+                // load height map projector setting
+                using HMPSetting = erl::gp_sdf::HeightMapProjectorSetting<Dtype>;
+                auto hmp_setting = std::make_shared<HMPSetting>();
+                if (!hmp_setting->FromYamlFile(m_setting_.height_map_projector_setting_file)) {
+                    RCLCPP_FATAL(
+                        logger,
+                        "Failed to load height map projector setting from %s",
+                        m_setting_.height_map_projector_setting_file.c_str());
+                    rclcpp::shutdown();
+                    return;
+                }
+
+                // create projector — colored or non-colored depending on surface mapping type
+                if (m_colored_bhm_) {
+                    m_colored_height_map_projector_ =
+                        std::make_unique<erl::gp_sdf::HeightMapProjector<Dtype, true>>(hmp_setting);
+                } else {
+                    m_height_map_projector_ =
+                        std::make_unique<erl::gp_sdf::HeightMapProjector<Dtype>>(hmp_setting);
+                }
+
+                // create the publisher
+                m_pub_occupancy_grid_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(
+                    m_setting_.occupancy_grid_topic.path,
+                    m_setting_.occupancy_grid_topic.GetQoS());
+                m_msg_occupancy_grid_.header.frame_id = m_setting_.world_frame;
+
+                // create the timer
+                m_pub_occupancy_grid_timer_ = this->create_wall_timer(
+                    std::chrono::duration<double>(
+                        1.0 / m_setting_.publish_occupancy_grid_frequency),
+                    std::bind(&SdfMappingNode::CallbackPublishOccupancyGrid, this));
+            }
         }
 
         m_pub_update_time_ = this->create_publisher<std_msgs::msg::Float64>(
@@ -2152,6 +2237,57 @@ private:
         }
 
         m_pub_mesh_->publish(msg);
+    }
+
+    void
+    CallbackPublishOccupancyGrid() {
+        if constexpr (Dim == 3) {
+
+            if (m_pub_occupancy_grid_->get_subscription_count() == 0) { return; }
+            if (!m_surface_mapping_) { return; }
+
+            using GridMapInfo = erl::common::GridMapInfo2D<Dtype>;
+
+            // Update the height map projector and get the occupancy grid.
+            std::vector<int8_t> occupancy_data;
+            GridMapInfo grid_info(// placeholder, overwritten below
+                Eigen::Vector2<Dtype>(0, 0), // origin
+                Eigen::Vector2<Dtype>(1, 1),  // resolution
+                Eigen::Vector2i(1, 1));  // shape
+
+            if (m_colored_height_map_projector_) {
+                m_colored_height_map_projector_->Update(*m_colored_bhm_);
+                m_colored_height_map_projector_->GetOccupancyGrid(occupancy_data, grid_info);
+            } else if (m_height_map_projector_) {
+                auto bhm =
+                    std::dynamic_pointer_cast<BayesianHilbertSurfaceMapping>(m_surface_mapping_);
+                if (!bhm) { return; }
+                m_height_map_projector_->Update(*bhm);
+                m_height_map_projector_->GetOccupancyGrid(occupancy_data, grid_info);
+            } else {
+                return;
+            }
+
+            if (occupancy_data.empty()) { return; }
+
+            // Fill the OccupancyGrid message.
+            auto &msg = m_msg_occupancy_grid_;
+            msg.header.stamp = this->get_clock()->now();
+            msg.info.resolution = static_cast<float>(grid_info.Resolution()[0]);
+            msg.info.width = static_cast<uint32_t>(grid_info.Shape()[1]);   // cols
+            msg.info.height = static_cast<uint32_t>(grid_info.Shape()[0]);  // rows
+            msg.info.origin.position.x = static_cast<double>(grid_info.Min()[0]);
+            msg.info.origin.position.y = static_cast<double>(grid_info.Min()[1]);
+            msg.info.origin.position.z = 0.0;
+            msg.info.origin.orientation.w = 1.0;
+
+            // Copy data: our format matches nav_msgs (int8_t, row-major).
+            msg.data.assign(occupancy_data.begin(), occupancy_data.end());
+
+            m_pub_occupancy_grid_->publish(msg);
+        } else {
+            return;
+        }
     }
 };
 
