@@ -140,6 +140,15 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     double publish_mesh_frequency = 1.0;
     // parameters of the topic to publish the mesh
     Ros2TopicParams mesh_topic{"mesh"};
+    // if true, publish the 2D occupancy grid projected from the 3D height map (Dim==3 only).
+    bool publish_occupancy_grid = false;
+    // frequency to publish the occupancy grid
+    double publish_occupancy_grid_frequency = 5.0;
+    // parameters of the topic to publish the occupancy grid
+    Ros2TopicParams occupancy_grid_topic{"occupancy_grid"};
+    // path to the yaml file for the height map projector setting (required when
+    // publish_occupancy_grid is true)
+    std::string height_map_projector_setting_file = "";
     // parameters of the topic to publish the update time
     Ros2TopicParams update_time_topic{"update_time"};
     // parameters of the topic to publish the query time
@@ -154,15 +163,6 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     Ros2TopicParams load_map_service{"load_map", "services"};
     // parameters of the service to save the mesh
     Ros2TopicParams save_mesh_service{"save_mesh", "services"};
-    // if true, publish the 2D occupancy grid projected from the 3D height map (Dim==3 only).
-    bool publish_occupancy_grid = false;
-    // frequency to publish the occupancy grid
-    double publish_occupancy_grid_frequency = 5.0;
-    // parameters of the topic to publish the occupancy grid
-    Ros2TopicParams occupancy_grid_topic{"occupancy_grid"};
-    // path to the yaml file for the height map projector setting (required when
-    // publish_occupancy_grid is true)
-    std::string height_map_projector_setting_file = "";
 
     ERL_REFLECT_SCHEMA(
         SdfMappingNodeConfig,
@@ -198,17 +198,17 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_mesh),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_mesh_frequency),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, mesh_topic),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_occupancy_grid),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_occupancy_grid_frequency),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, occupancy_grid_topic),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, height_map_projector_setting_file),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, update_time_topic),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, query_time_topic),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, sdf_query_service),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, occ_query_service),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_map_service),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, load_map_service),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_mesh_service),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_occupancy_grid),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_occupancy_grid_frequency),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, occupancy_grid_topic),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, height_map_projector_setting_file));
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_mesh_service));
 
     bool
     PostDeserialization() override {
@@ -1716,6 +1716,8 @@ private:
         m_pub_update_time_->publish(m_msg_update_time_);
         RCLCPP_INFO(this->get_logger(), "Update fps: %f", 1.0 / m_msg_update_time_.data);
         if (!success) { RCLCPP_WARN(this->get_logger(), "Failed to update SDF mapping"); }
+
+        erl::common::BlockTimerRecords::PrintRecords();
     }
 
     // --- service handler: runs Test() on the current map ---
@@ -2271,18 +2273,29 @@ private:
             if (occupancy_data.empty()) { return; }
 
             // Fill the OccupancyGrid message.
+            // Internal layout: rows index X, cols index Y, data[x * Ny + y] (X-major).
+            // Nav2 layout:     width = X cells, height = Y cells, data[y * width + x] (Y-major).
+            // So we swap width/height and transpose the buffer.
+            const uint32_t nx = static_cast<uint32_t>(grid_info.Shape()[0]);  // X extent (rows)
+            const uint32_t ny = static_cast<uint32_t>(grid_info.Shape()[1]);  // Y extent (cols)
+
             auto &msg = m_msg_occupancy_grid_;
             msg.header.stamp = this->get_clock()->now();
             msg.info.resolution = static_cast<float>(grid_info.Resolution()[0]);
-            msg.info.width = static_cast<uint32_t>(grid_info.Shape()[1]);   // cols
-            msg.info.height = static_cast<uint32_t>(grid_info.Shape()[0]);  // rows
+            msg.info.width = nx;
+            msg.info.height = ny;
             msg.info.origin.position.x = static_cast<double>(grid_info.Min()[0]);
             msg.info.origin.position.y = static_cast<double>(grid_info.Min()[1]);
             msg.info.origin.position.z = 0.0;
             msg.info.origin.orientation.w = 1.0;
 
-            // Copy data: our format matches nav_msgs (int8_t, row-major).
-            msg.data.assign(occupancy_data.begin(), occupancy_data.end());
+            // Transpose: our[x * ny + y] -> nav[y * nx + x].
+            msg.data.resize(static_cast<std::size_t>(nx) * ny);
+            for (uint32_t x = 0; x < nx; ++x) {
+                for (uint32_t y = 0; y < ny; ++y) {
+                    msg.data[y * nx + x] = occupancy_data[x * ny + y];
+                }
+            }
 
             m_pub_occupancy_grid_->publish(msg);
         } else {

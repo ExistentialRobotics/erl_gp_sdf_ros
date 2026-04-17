@@ -1604,6 +1604,9 @@ private:
                 reinterpret_cast<const char *>(covariances_ptr),
                 n * Dim * (Dim + 1) / 2 * sizeof(double));
         }
+
+        erl::common::BlockTimerRecords::PrintRecords();
+
         return true;
     }
 
