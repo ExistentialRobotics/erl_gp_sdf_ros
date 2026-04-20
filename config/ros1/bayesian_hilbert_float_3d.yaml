@@ -1,6 +1,6 @@
-surface_mapping_setting_type: erl::gp_sdf::BayesianHilbertSurfaceMapping<float, 3, false>::Setting
+surface_mapping_setting_type: erl::gp_sdf::BayesianHilbertSurfaceMapping<float, 3>::Setting
 surface_mapping_setting_file: config/template/bayesian_hilbert_mapping_3d_float.yaml
-surface_mapping_type: erl::gp_sdf::BayesianHilbertSurfaceMapping<float, 3, false>
+surface_mapping_type: erl::gp_sdf::BayesianHilbertSurfaceMapping<float, 3>
 sdf_mapping_setting_file: config/template/sdf_mapping_3d_float.yaml
 use_odom: false
 odom_topic: /jackal_velocity_controller/odom
@@ -17,9 +17,8 @@ convert_scan_to_points: true
 scan_in_local_frame: true
 depth_scale: 0.001
 store_color: false
-paint_tree_topic: ""
-paint_tree_set_color: true
-paint_tree_discrete: true
+paint_surface_topic: ""
+paint_surface_overwrite: true
 publish_tree: false
 publish_tree_binary: true
 publish_tree_frequency: 2.0

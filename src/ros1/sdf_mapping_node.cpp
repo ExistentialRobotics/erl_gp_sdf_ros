@@ -112,11 +112,9 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     // if the path is non-empty, subscribe to this topic (PointCloud2 with rgb/rgba) and use it to
     // paint the occupancy tree via PaintTree. When set, store_color is ignored: coloring comes
     // from this separate topic instead of the scan point cloud.
-    std::string paint_tree_topic = "";
+    std::string paint_surface_topic = "";
     // if true, PaintTree overwrites node color (SetColor). If false, it averages (UpdateColor).
-    bool paint_tree_set_color = true;
-    // if true, deduplicate points that fall in the same cell before painting (enables parallel).
-    bool paint_tree_discrete = true;
+    bool paint_surface_overwrite = true;
     // if true, publish the occupancy tree used by the surface mapping.
     bool publish_tree = false;
     // if true, use binary format to publish the occupancy tree, which makes the
@@ -174,9 +172,8 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, scan_in_local_frame),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, depth_scale),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, store_color),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, paint_tree_topic),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, paint_tree_set_color),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, paint_tree_discrete),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, paint_surface_topic),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, paint_surface_overwrite),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_tree),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_tree_binary),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_tree_frequency),
@@ -338,13 +335,10 @@ class SdfMappingNode {
     using GpSdfMapping = erl::gp_sdf::GpSdfMapping<Dtype, Dim>;
     using GpOccSurfaceMapping = erl::gp_sdf::GpOccSurfaceMapping<Dtype, Dim>;
     using BayesianHilbertSurfaceMapping = erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, Dim>;
-    using ColoredBayesianHilbertSurfaceMapping =
-        erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, Dim, true>;
     using Tree = std::conditional_t<
         Dim == 2,
         erl::geometry::AbstractOccupancyQuadtree<Dtype>,
         erl::geometry::AbstractOccupancyOctree<Dtype>>;
-    using ColoredTree = typename ColoredBayesianHilbertSurfaceMapping::Tree;
     using Rotation = typename GpSdfMapping::Rotation;
     using Translation = typename GpSdfMapping::Translation;
     using Variances = typename GpSdfMapping::Variances;
@@ -370,7 +364,7 @@ class SdfMappingNode {
     ros::NodeHandle m_nh_;
     ros::Subscriber m_sub_odom_;
     ros::Subscriber m_sub_scan_;
-    ros::Subscriber m_sub_paint_tree_;
+    ros::Subscriber m_sub_paint_surface_;
     ros::ServiceServer m_srv_query_sdf_;
     ros::ServiceServer m_srv_occ_query_;
     ros::ServiceServer m_srv_load_map_;
@@ -392,11 +386,11 @@ class SdfMappingNode {
 
     std::shared_ptr<YamlableBase> m_surface_mapping_cfg_ = nullptr;
     std::shared_ptr<AbstractSurfaceMapping> m_surface_mapping_ = nullptr;
-    std::shared_ptr<ColoredBayesianHilbertSurfaceMapping> m_colored_bhm_ = nullptr;
+    // BHSM handle for color ingestion (store_color + paint voxels); null if mapping is not BHSM
+    std::shared_ptr<BayesianHilbertSurfaceMapping> m_bhm_ = nullptr;
     std::shared_ptr<typename GpSdfMapping::Setting> m_sdf_mapping_cfg_ = nullptr;
     std::shared_ptr<GpSdfMapping> m_sdf_mapping_ = nullptr;
-    std::shared_ptr<const Tree> m_tree_ = nullptr;           // used to store the occupancy tree
-    std::shared_ptr<ColoredTree> m_colored_tree_ = nullptr;  // non-const for PaintTree
+    std::shared_ptr<const Tree> m_tree_ = nullptr;
 
     // for the sensor pose
 
@@ -486,26 +480,25 @@ public:
             return;
         }
         m_sdf_mapping_ = std::make_shared<GpSdfMapping>(m_sdf_mapping_cfg_, m_surface_mapping_);
-        if (!m_setting_.paint_tree_topic.empty()) {
+        if (!m_setting_.paint_surface_topic.empty()) {
             if (m_setting_.store_color) {
                 ROS_WARN(
-                    "paint_tree_topic is set, ignoring store_color. "
-                    "Coloring will come from the paint_tree_topic instead.");
+                    "paint_surface_topic is set, ignoring store_color. "
+                    "Coloring will come from the paint_surface_topic instead.");
                 m_setting_.store_color = false;
             }
         }
+        // Resolve a BHSM handle once; used for both store_color and paint voxels.
+        m_bhm_ = std::dynamic_pointer_cast<BayesianHilbertSurfaceMapping>(m_surface_mapping_);
         if (m_setting_.store_color) {
-            m_colored_bhm_ =
-                std::dynamic_pointer_cast<ColoredBayesianHilbertSurfaceMapping>(m_surface_mapping_);
-            if (m_colored_bhm_) {
-                m_colored_tree_ = m_colored_bhm_->GetTree();
+            if (m_bhm_) {
                 ROS_INFO(
-                    "store_color is true and surface mapping supports colored updates. "
-                    "Node colors will be stored in the occupancy tree.");
+                    "store_color is true; per-point colors will be folded into surface voxels "
+                    "after each Update via PaintVoxels.");
             } else {
                 ROS_WARN(
-                    "store_color is true but surface mapping does not support colored updates. "
-                    "Disabling store_color.");
+                    "store_color is true but surface mapping is not a "
+                    "BayesianHilbertSurfaceMapping. Disabling store_color.");
                 m_setting_.store_color = false;
             }
         }
@@ -575,29 +568,25 @@ public:
         }
 
         if constexpr (Dim == 3) {
-            if (!m_setting_.paint_tree_topic.empty()) {
-                // set up the colored tree pointer before subscribing
-                m_colored_bhm_ = std::dynamic_pointer_cast<ColoredBayesianHilbertSurfaceMapping>(
-                    m_surface_mapping_);
-                if (m_colored_bhm_) {
-                    m_colored_tree_ = m_colored_bhm_->GetTree();
+            if (!m_setting_.paint_surface_topic.empty()) {
+                if (m_bhm_) {
                     ROS_INFO(
-                        "Subscribing to %s for tree painting",
-                        m_setting_.paint_tree_topic.c_str());
-                    m_sub_paint_tree_ = m_nh_.subscribe(
-                        m_setting_.paint_tree_topic,
+                        "Subscribing to %s for voxel painting",
+                        m_setting_.paint_surface_topic.c_str());
+                    m_sub_paint_surface_ = m_nh_.subscribe(
+                        m_setting_.paint_surface_topic,
                         10,
-                        &SdfMappingNode::CallbackPaintTree,
+                        &SdfMappingNode::CallbackPaintVoxels,
                         this);
                 } else {
                     ROS_WARN(
-                        "paint_tree_topic is set but surface mapping does not use a colored "
-                        "tree. Ignoring paint_tree_topic.");
+                        "paint_surface_topic is set but surface mapping is not a "
+                        "BayesianHilbertSurfaceMapping. Ignoring paint_surface_topic.");
                 }
             }
         } else {  // constexpr Dim == 2
-            if (!m_setting_.paint_tree_topic.empty()) {
-                ROS_WARN("paint_tree_topic is only supported for 3D. Ignoring.");
+            if (!m_setting_.paint_surface_topic.empty()) {
+                ROS_WARN("paint_surface_topic is only supported for 3D. Ignoring.");
             }
         }
 
@@ -834,10 +823,8 @@ private:
 
     std::shared_ptr<const Tree>
     GetTreeFromBayesianHilbertSurfaceMapping() {
-        if (m_colored_bhm_) { return m_colored_tree_; }
-        auto mapping = std::dynamic_pointer_cast<BayesianHilbertSurfaceMapping>(m_surface_mapping_);
-        if (!mapping) { return nullptr; }
-        return mapping->GetTree();
+        if (!m_bhm_) { return nullptr; }
+        return m_bhm_->GetTree();
     }
 
     // get the pose for time t
@@ -1004,13 +991,14 @@ private:
     }
 
     void
-    CallbackPaintTree(const sensor_msgs::PointCloud2::ConstPtr &msg) {
+    CallbackPaintVoxels(const sensor_msgs::PointCloud2::ConstPtr &msg) {
         if constexpr (Dim != 3) {
             (void) msg;
             return;
         } else {  // NOLINT
-            if (!m_colored_tree_) {
-                ROS_WARN_ONCE("PaintTree callback: colored tree not available, skipping.");
+            if (!m_bhm_) {
+                ROS_WARN_ONCE(
+                    "PaintVoxels callback: BayesianHilbertSurfaceMapping not available, skipping.");
                 return;
             }
 
@@ -1136,14 +1124,14 @@ private:
             // transform points to world frame
             points = (rotation * points).colwise() + translation;
 
-            // paint the tree under lock
+            // paint the voxels under lock (parallel over local BHMs)
             {
                 auto lock = m_surface_mapping_->GetLockGuard();
-                m_colored_tree_->PaintTree(
+                (void) m_bhm_->PaintVoxels(
                     points,
                     colors,
-                    m_setting_.paint_tree_set_color,
-                    m_setting_.paint_tree_discrete);
+                    m_setting_.paint_surface_overwrite,
+                    /*parallel=*/true);
             }
         }  // else (Dim == 3)
     }
@@ -1462,19 +1450,22 @@ private:
         bool success;
         {
             ERL_BLOCK_TIMER_MSG_TIME("Surface mapping update", surf_mapping_time);
-            if (m_received_colors_) {
-                // Use the color-aware Update path (m_colored_bhm_ is validated at init)
-                success = m_colored_bhm_->Update(
-                    rotation,
-                    translation,
-                    scan,
-                    m_point_colors_,
-                    are_points,
-                    in_local);
+            success = m_surface_mapping_->Update(rotation, translation, scan, are_points, in_local);
+        }
+        if (success && m_received_colors_ && m_bhm_ && are_points) {
+            // Fold per-point colors into surface voxels after the update.
+            MatrixDX points_world;
+            if (in_local) {
+                points_world.noalias() = (rotation * scan).colwise() + translation;
             } else {
-                success =
-                    m_surface_mapping_->Update(rotation, translation, scan, are_points, in_local);
+                points_world = scan;
             }
+            const long n = points_world.cols();
+            (void) m_bhm_->PaintVoxels(
+                points_world,
+                m_point_colors_.leftCols(n),
+                m_setting_.paint_surface_overwrite,
+                /*parallel=*/true);
         }
         {
             double time_budget_us = 1e6 / m_sdf_mapping_cfg_->update_hz;  // us
@@ -1686,14 +1677,9 @@ private:
 
         res.dim = Dim;
 
-        // Try BayesianHilbertSurfaceMapping (colored or non-colored)
-        if (m_colored_bhm_) {
-            FillBhmOccQueryResponse(m_colored_bhm_, positions, n, mode, compute_gradient, res);
-            return true;
-        }
-        auto bhm = std::dynamic_pointer_cast<BayesianHilbertSurfaceMapping>(m_surface_mapping_);
-        if (bhm) {
-            FillBhmOccQueryResponse(bhm, positions, n, mode, compute_gradient, res);
+        // Try BayesianHilbertSurfaceMapping
+        if (m_bhm_) {
+            FillBhmOccQueryResponse(m_bhm_, positions, n, mode, compute_gradient, res);
             return true;
         }
 
@@ -1826,14 +1812,13 @@ private:
         std::filesystem::create_directories(mesh_file.parent_path());
         std::vector<VectorD> vertices;
         std::vector<Eigen::Vector<int, Dim>> faces;
-        std::vector<Color> vertex_colors;
-        const bool has_color = m_setting_.store_color || m_sub_paint_tree_;
+        std::vector<Color> face_colors;
+        const bool has_color = m_setting_.store_color || m_sub_paint_surface_;
         {
             auto lock = m_surface_mapping_->GetLockGuard();
             try {
                 if (has_color) {
-                    res.success =
-                        m_surface_mapping_->GetMesh(false, vertices, faces, vertex_colors);
+                    res.success = m_surface_mapping_->GetMesh(false, vertices, faces, face_colors);
                 } else {
                     res.success = m_surface_mapping_->GetMesh(false, vertices, faces);
                 }
@@ -1875,13 +1860,28 @@ private:
                     static_cast<int>(faces[i](1)),
                     static_cast<int>(faces[i](2)));
             }
-            if (has_color && vertex_colors.size() == vertices.size()) {
-                mesh.vertex_colors_.resize(vertex_colors.size());
-                for (size_t i = 0; i < vertex_colors.size(); ++i) {
-                    mesh.vertex_colors_[i] = Eigen::Vector3d(
-                        vertex_colors[i][0] / 255.0,
-                        vertex_colors[i][1] / 255.0,
-                        vertex_colors[i][2] / 255.0);
+            if (has_color && face_colors.size() == faces.size() && !faces.empty()) {
+                // Open3D TriangleMesh carries per-vertex colors, not per-face. Average
+                // incident face colors at each vertex.
+                mesh.vertex_colors_.assign(vertices.size(), Eigen::Vector3d::Zero());
+                std::vector<uint32_t> counts(vertices.size(), 0);
+                for (size_t i = 0; i < faces.size(); ++i) {
+                    const Eigen::Vector3d c(
+                        face_colors[i][0] / 255.0,
+                        face_colors[i][1] / 255.0,
+                        face_colors[i][2] / 255.0);
+                    for (int k = 0; k < 3; ++k) {
+                        const auto v = faces[i](k);
+                        mesh.vertex_colors_[v] += c;
+                        ++counts[v];
+                    }
+                }
+                for (size_t v = 0; v < vertices.size(); ++v) {
+                    if (counts[v] > 0) {
+                        mesh.vertex_colors_[v] /= static_cast<double>(counts[v]);
+                    } else {
+                        mesh.vertex_colors_[v] = Eigen::Vector3d(1.0, 1.0, 1.0);
+                    }
                 }
             }
             constexpr bool write_ascii = false;
@@ -1958,12 +1958,12 @@ private:
 
         std::vector<VectorD> vertices;
         std::vector<Eigen::Vector<int, Dim>> faces;
-        std::vector<Color> vertex_colors;
+        std::vector<Color> face_colors;
         {
             auto lock = m_surface_mapping_->GetLockGuard();
             try {
-                if (m_setting_.store_color || m_sub_paint_tree_) {
-                    if (!m_surface_mapping_->GetMesh(false, vertices, faces, vertex_colors)) {
+                if (m_setting_.store_color || m_sub_paint_surface_) {
+                    if (!m_surface_mapping_->GetMesh(false, vertices, faces, face_colors)) {
                         return;
                     }
                 } else {
@@ -1996,18 +1996,17 @@ private:
                 (Dim == 3) ? static_cast<uint32_t>(faces[i][2]) : 0;
         }
 
-        // populate vertex colors if available
-        if (!vertex_colors.empty()) {
-            msg.vertex_colors.resize(vertex_colors.size());
-            for (size_t i = 0; i < vertex_colors.size(); ++i) {
-                msg.vertex_colors[i].r = static_cast<float>(vertex_colors[i][0]) / 255.0f;
-                msg.vertex_colors[i].g = static_cast<float>(vertex_colors[i][1]) / 255.0f;
-                msg.vertex_colors[i].b = static_cast<float>(vertex_colors[i][2]) / 255.0f;
-                msg.vertex_colors[i].a = static_cast<float>(vertex_colors[i][3]) / 255.0f;
+        // populate face colors if available
+        msg.vertex_colors.clear();
+        if (!face_colors.empty()) {
+            msg.face_colors.resize(face_colors.size());
+            for (size_t i = 0; i < face_colors.size(); ++i) {
+                msg.face_colors[i].r = static_cast<float>(face_colors[i][0]) / 255.0f;
+                msg.face_colors[i].g = static_cast<float>(face_colors[i][1]) / 255.0f;
+                msg.face_colors[i].b = static_cast<float>(face_colors[i][2]) / 255.0f;
+                msg.face_colors[i].a = static_cast<float>(face_colors[i][3]) / 255.0f;
             }
-            msg.face_colors.clear();
         } else {
-            msg.vertex_colors.clear();
             msg.face_colors.clear();
         }
 

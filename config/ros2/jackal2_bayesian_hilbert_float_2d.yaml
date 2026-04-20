@@ -1,8 +1,8 @@
 jackal2/sdf_mapping_node:
     ros__parameters:
-        surface_mapping_setting_type: erl::gp_sdf::BayesianHilbertSurfaceMapping<float, 2, false>::Setting
+        surface_mapping_setting_type: erl::gp_sdf::BayesianHilbertSurfaceMapping<float, 2>::Setting
         surface_mapping_setting_file: config/template/bayesian_hilbert_mapping_2d_float.yaml
-        surface_mapping_type: erl::gp_sdf::BayesianHilbertSurfaceMapping<float, 2, false>
+        surface_mapping_type: erl::gp_sdf::BayesianHilbertSurfaceMapping<float, 2>
         sdf_mapping_setting_file: erl_gp_sdf/config/template/sdf_mapping_2d_float.yaml
         use_odom: false
         odom_topic.path: /jackal_velocity_controller/odom
@@ -19,9 +19,8 @@ jackal2/sdf_mapping_node:
         scan_in_local_frame: false # converted to points in the world frame
         depth_scale: 0.001
         store_color: false
-        paint_tree_topic.path: ""
-        paint_tree_set_color: true
-        paint_tree_discrete: true
+        paint_surface_topic.path: ""
+        paint_surface_overwrite: true
         publish_tree: false
         publish_tree_binary: true
         publish_tree_frequency: 5.0
