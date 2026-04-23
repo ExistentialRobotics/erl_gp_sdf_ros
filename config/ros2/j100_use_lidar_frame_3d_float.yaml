@@ -1,4 +1,5 @@
 j100/sdf_mapping_node:
     ros__parameters:
-        scan_type: point_cloud
-        scan_frame_type: erl::geometry::LidarFrame3D<float>
+        scan:
+            type: point_cloud
+            frame_type: erl::geometry::LidarFrame3D<float>

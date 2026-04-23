@@ -2,33 +2,44 @@ surface_mapping_setting_type: erl::gp_sdf::GpOccSurfaceMapping<float, 3>::Settin
 surface_mapping_setting_file: config/template/gp_occ_mapping_3d_lidar_float.yaml
 surface_mapping_type: erl::gp_sdf::GpOccSurfaceMapping<float, 3>
 sdf_mapping_setting_file: config/template/sdf_mapping_3d_float.yaml
-use_odom: false
-odom_topic: /jackal_velocity_controller/odom
-odom_msg_type: transform_stamped # "odometry" or "transform_stamped"
-odom_queue_size: 200
+odom:
+    enabled: false
+    topic: /jackal_velocity_controller/odom
+    msg_type: transform_stamped # "odometry" or "transform_stamped"
+    queue_size: 200
 world_frame: map
 sensor_frame: camera
-scan_topic: /camera/depth
-scan_type: depth # "laser", "point_cloud", or "depth"
-scan_frame_type: erl::geometry::DepthFrame3D<float>
-scan_frame_setting_file: config/sensors/depth_frame.yaml
-scan_stride: 1
-convert_scan_to_points: false
-scan_in_local_frame: true
-depth_scale: 0.001
-store_color: false
-paint_surface_topic: ""
-paint_surface_overwrite: true
-publish_tree: false
-publish_tree_binary: true
-publish_tree_frequency: 5.0
-tree_topic: surface_mapping_tree
-publish_surface_points: false
-publish_surface_points_frequency: 5.0
-surface_points_topic: surface_points
-publish_mesh: false
-publish_mesh_frequency: 1.0
-mesh_topic: mesh
+scan:
+    topic: /camera/depth
+    type: depth # "laser", "point_cloud", or "depth"
+    frame_type: erl::geometry::DepthFrame3D<float>
+    frame_setting_file: config/sensors/depth_frame.yaml
+    stride: 1
+    convert_to_points: false
+    in_local_frame: true
+    depth_scale: 0.001
+paint_surface:
+    color_from_scan: false
+    topic: ""
+    topic_type: image # "pcd" or "image"
+    overwrite: true
+publish_tree:
+    enabled: false
+    binary: true
+    frequency: 5.0
+    topic: surface_mapping_tree
+publish_surface_points:
+    enabled: false
+    frequency: 5.0
+    topic: surface_points
+publish_mesh:
+    enabled: false
+    frequency: 1.0
+    topic: mesh
+publish_occupancy_grid:
+    enabled: false
+    frequency: 5.0
+    topic: occupancy_grid
 update_time_topic: update_time
 query_time_topic: query_time
 sdf_query_service: sdf_query

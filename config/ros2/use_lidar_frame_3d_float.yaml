@@ -1,4 +1,5 @@
 /**:
     ros__parameters:
-        scan_type: point_cloud # "laser", "point_cloud", or "depth"
-        scan_frame_type: erl::geometry::LidarFrame3D<float>
+        scan:
+            type: point_cloud # "laser", "point_cloud", or "depth"
+            frame_type: erl::geometry::LidarFrame3D<float>

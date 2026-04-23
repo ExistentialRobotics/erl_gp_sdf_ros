@@ -5,6 +5,7 @@
 #include "erl_common/yaml.hpp"
 #include "erl_geometry/abstract_occupancy_octree.hpp"
 #include "erl_geometry/abstract_occupancy_quadtree.hpp"
+#include "erl_geometry/camera_intrinsic.hpp"
 #include "erl_geometry/depth_frame_3d.hpp"
 #include "erl_geometry/lidar_frame_2d.hpp"
 #include "erl_geometry/lidar_frame_3d.hpp"
@@ -25,6 +26,8 @@
 #include <open3d/geometry/TriangleMesh.h>
 #include <open3d/io/LineSetIO.h>
 #include <open3d/io/TriangleMeshIO.h>
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rviz_default_plugins/displays/pointcloud/point_cloud_helpers.hpp>
 #include <sensor_msgs/image_encodings.hpp>
@@ -68,6 +71,152 @@ ERL_REFLECT_ENUM_SCHEMA(
     ERL_REFLECT_ENUM_MEMBER("depth", ScanType::Depth));
 ERL_PARSE_ENUM(ScanType, 3);
 
+struct OdomParams : Yamlable<OdomParams> {
+    // whether to use the odometry topic to get the sensor pose
+    bool enabled = false;
+    // parameters of the odometry topic
+    Ros2TopicParams topic{"/jackal_velocity_controller/odom"};
+    // can be "odometry" or "transform_stamped"
+    OdomType msg_type = OdomType::Odometry;
+    // size of the odometry queue
+    int64_t queue_size = 100;
+
+    ERL_REFLECT_SCHEMA(
+        OdomParams,
+        ERL_REFLECT_MEMBER(OdomParams, enabled),
+        ERL_REFLECT_MEMBER(OdomParams, topic),
+        ERL_REFLECT_MEMBER(OdomParams, msg_type),
+        ERL_REFLECT_MEMBER(OdomParams, queue_size));
+};
+
+struct ScanParams : Yamlable<ScanParams> {
+    // parameters of the scan topic
+    Ros2TopicParams topic{"/front/scan"};
+    // can be "laser", "point_cloud", or "depth"
+    ScanType type = ScanType::Laser;
+    // frame class of the scan. e.g. erl::geometry::LidarFrame3D<float>,
+    // erl::geometry::DepthFrame3D<float> for 3D scans. For 2D scans, the only option is
+    // erl::geometry::LidarFrame2D<float> or erl::geometry::LidarFrame2D<double>.
+    std::string frame_type = "";
+    // path to the yaml file for the scan frame setting
+    std::string frame_setting_file = "";
+    // if stride > 1, the scan will be downsampled by this factor.
+    int64_t stride = 1;
+    // if true, convert the scan to points when the scan is not a point cloud.
+    bool convert_to_points = false;
+    // if the scan data is in the local frame, set this to true.
+    bool in_local_frame = false;
+    // scale for depth image, 0.001 converts mm to m.
+    double depth_scale = 0.001;
+
+    ERL_REFLECT_SCHEMA(
+        ScanParams,
+        ERL_REFLECT_MEMBER(ScanParams, topic),
+        ERL_REFLECT_MEMBER(ScanParams, type),
+        ERL_REFLECT_MEMBER(ScanParams, frame_type),
+        ERL_REFLECT_MEMBER(ScanParams, frame_setting_file),
+        ERL_REFLECT_MEMBER(ScanParams, stride),
+        ERL_REFLECT_MEMBER(ScanParams, convert_to_points),
+        ERL_REFLECT_MEMBER(ScanParams, in_local_frame),
+        ERL_REFLECT_MEMBER(ScanParams, depth_scale));
+};
+
+struct PaintSurfaceParams : Yamlable<PaintSurfaceParams> {
+    // if true, extract per-point colors from the scan point cloud and fold them into surface
+    // voxels after each Update. Only effective with BayesianHilbertSurfaceMapping and point cloud
+    // input.
+    bool color_from_scan = false;
+    // if the path is non-empty, subscribe to this topic to paint the surface voxels.
+    // The message type depends on topic_type: "pcd" expects PointCloud2 with rgb/rgba fields;
+    // "image" expects sensor_msgs/Image (BGR8/RGB8/BGRA8/RGBA8).
+    Ros2TopicParams topic{""};
+    // "pcd" or "image". Selects PointCloud2- or Image-based voxel painting for the topic
+    // subscriber.
+    std::string topic_type = "image";
+    // if true, PaintVoxels overwrites voxel color. If false, it averages via running mean.
+    bool overwrite = true;
+    // maximum distance (meters) from sensor for paint points. Only used when topic_type is "pcd".
+    // If <= 0, no filtering.
+    double max_distance = 0.0;
+    // camera intrinsics for the paint image (only used when topic_type is "image").
+    erl::geometry::CameraIntrinsic<double> camera_intrinsic;
+
+    ERL_REFLECT_SCHEMA(
+        PaintSurfaceParams,
+        ERL_REFLECT_MEMBER(PaintSurfaceParams, color_from_scan),
+        ERL_REFLECT_MEMBER(PaintSurfaceParams, topic),
+        ERL_REFLECT_MEMBER(PaintSurfaceParams, topic_type),
+        ERL_REFLECT_MEMBER(PaintSurfaceParams, overwrite),
+        ERL_REFLECT_MEMBER(PaintSurfaceParams, max_distance),
+        ERL_REFLECT_MEMBER(PaintSurfaceParams, camera_intrinsic));
+};
+
+struct PublishTreeParams : Yamlable<PublishTreeParams> {
+    // if true, publish the occupancy tree used by the surface mapping.
+    bool enabled = false;
+    // if true, use binary format to publish the occupancy tree, which makes the message smaller.
+    bool binary = true;
+    // frequency to publish the occupancy tree
+    double frequency = 5.0;
+    // parameters of the topic to publish the occupancy tree
+    Ros2TopicParams topic{"surface_mapping_tree"};
+
+    ERL_REFLECT_SCHEMA(
+        PublishTreeParams,
+        ERL_REFLECT_MEMBER(PublishTreeParams, enabled),
+        ERL_REFLECT_MEMBER(PublishTreeParams, binary),
+        ERL_REFLECT_MEMBER(PublishTreeParams, frequency),
+        ERL_REFLECT_MEMBER(PublishTreeParams, topic));
+};
+
+struct PublishSurfacePointsParams : Yamlable<PublishSurfacePointsParams> {
+    // if true, publish the surface points used by the sdf mapping.
+    bool enabled = false;
+    // frequency to publish the surface points
+    double frequency = 5.0;
+    // parameters of the topic to publish the surface points
+    Ros2TopicParams topic{"surface_points"};
+
+    ERL_REFLECT_SCHEMA(
+        PublishSurfacePointsParams,
+        ERL_REFLECT_MEMBER(PublishSurfacePointsParams, enabled),
+        ERL_REFLECT_MEMBER(PublishSurfacePointsParams, frequency),
+        ERL_REFLECT_MEMBER(PublishSurfacePointsParams, topic));
+};
+
+struct PublishMeshParams : Yamlable<PublishMeshParams> {
+    // if true, publish the mesh built by the surface mapping.
+    bool enabled = false;
+    // frequency to publish the mesh
+    double frequency = 1.0;
+    // parameters of the topic to publish the mesh
+    Ros2TopicParams topic{"mesh"};
+
+    ERL_REFLECT_SCHEMA(
+        PublishMeshParams,
+        ERL_REFLECT_MEMBER(PublishMeshParams, enabled),
+        ERL_REFLECT_MEMBER(PublishMeshParams, frequency),
+        ERL_REFLECT_MEMBER(PublishMeshParams, topic));
+};
+
+struct PublishOccupancyGridParams : Yamlable<PublishOccupancyGridParams> {
+    // if true, publish the 2D occupancy grid projected from the 3D height map (Dim==3 only).
+    bool enabled = false;
+    // frequency to publish the occupancy grid
+    double frequency = 5.0;
+    // parameters of the topic to publish the occupancy grid
+    Ros2TopicParams topic{"occupancy_grid"};
+    // height map projector setting (required when enabled is true)
+    erl::gp_sdf::HeightMapProjectorSetting<double> height_map_projector;
+
+    ERL_REFLECT_SCHEMA(
+        PublishOccupancyGridParams,
+        ERL_REFLECT_MEMBER(PublishOccupancyGridParams, enabled),
+        ERL_REFLECT_MEMBER(PublishOccupancyGridParams, frequency),
+        ERL_REFLECT_MEMBER(PublishOccupancyGridParams, topic),
+        ERL_REFLECT_MEMBER(PublishOccupancyGridParams, height_map_projector));
+};
+
 struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     // setting class for the surface mapping. For example, to use
     // erl::gp_sdf::GpOccSurfaceMapping<float, 2>, you should use its setting class
@@ -79,74 +228,24 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     std::string surface_mapping_type = "";
     // path to the yaml file for the SDF mapping setting
     std::string sdf_mapping_setting_file = "";
-    // whether to use the odometry topic to get the sensor pose
-    bool use_odom = false;
-    // parameters of the odometry topic
-    Ros2TopicParams odom_topic{"/jackal_velocity_controller/odom"};
-    // can be "odometry" or "transform_stamped"
-    OdomType odom_msg_type = OdomType::Odometry;
-    // size of the odometry queue
-    int64_t odom_queue_size = 100;
+    // grouped parameters for odometry input.
+    OdomParams odom;
     // name of the world frame
     std::string world_frame = "map";
     // name of the sensor frame
     std::string sensor_frame = "front_laser";
-    // parameters of the scan topic
-    Ros2TopicParams scan_topic{"/front/scan"};
-    // can be "laser", "point_cloud", or "depth"
-    ScanType scan_type = ScanType::Laser;
-    // frame class of the scan. e.g. erl::geometry::LidarFrame3D<float>,
-    // erl::geometry::DepthFrame3D<float> for 3D scans. For 2D scans, the only option is
-    // erl::geometry::LidarFrame2D<float> or erl::geometry::LidarFrame2D<double>.
-    std::string scan_frame_type = "";
-    // path to the yaml file for the scan frame setting
-    std::string scan_frame_setting_file = "";
-    // if scan_stride > 1, the scan will be downsampled by this factor.
-    int64_t scan_stride = 1;
-    // if true, convert the scan to points when the scan is not a point cloud.
-    bool convert_scan_to_points = false;
-    // if the scan data is in the local frame, set this to true.
-    bool scan_in_local_frame = false;
-    // scale for depth image, 0.001 converts mm to m.
-    double depth_scale = 0.001;
-    // if true, store per-point colors from the input point cloud in the occupancy tree nodes.
-    // Only effective with BayesianHilbertSurfaceMapping and point cloud input.
-    bool store_color = false;
-    // if the path is non-empty, subscribe to this topic (PointCloud2 with rgb/rgba) and use it to
-    // paint the occupancy tree via PaintTree. When set, store_color is ignored: coloring comes
-    // from this separate topic instead of the scan point cloud.
-    Ros2TopicParams paint_surface_topic{""};
-    // if true, PaintTree overwrites node color (SetColor). If false, it averages (UpdateColor).
-    bool paint_surface_overwrite = true;
-    // if true, publish the occupancy tree used by the surface mapping.
-    bool publish_tree = false;
-    // if true, use binary format to publish the occupancy tree, which makes the message smaller.
-    bool publish_tree_binary = true;
-    // frequency to publish the occupancy tree
-    double publish_tree_frequency = 5.0;
-    // parameters of the topic to publish the occupancy tree
-    Ros2TopicParams tree_topic{"/surface_mapping_tree"};
-    // if true, publish the surface points used by the sdf mapping.
-    bool publish_surface_points = false;
-    // frequency to publish the surface points
-    double publish_surface_points_frequency = 5.0;
-    // parameters of the topic to publish the surface points
-    Ros2TopicParams surface_points_topic{"surface_points"};
-    // if true, publish the mesh built by the surface mapping.
-    bool publish_mesh = false;
-    // frequency to publish the mesh
-    double publish_mesh_frequency = 1.0;
-    // parameters of the topic to publish the mesh
-    Ros2TopicParams mesh_topic{"mesh"};
-    // if true, publish the 2D occupancy grid projected from the 3D height map (Dim==3 only).
-    bool publish_occupancy_grid = false;
-    // frequency to publish the occupancy grid
-    double publish_occupancy_grid_frequency = 5.0;
-    // parameters of the topic to publish the occupancy grid
-    Ros2TopicParams occupancy_grid_topic{"occupancy_grid"};
-    // path to the yaml file for the height map projector setting (required when
-    // publish_occupancy_grid is true)
-    std::string height_map_projector_setting_file = "";
+    // grouped parameters for the scan input.
+    ScanParams scan;
+    // grouped parameters for surface painting.
+    PaintSurfaceParams paint_surface;
+    // grouped parameters for publishing the occupancy tree.
+    PublishTreeParams publish_tree;
+    // grouped parameters for publishing the surface points.
+    PublishSurfacePointsParams publish_surface_points;
+    // grouped parameters for publishing the mesh.
+    PublishMeshParams publish_mesh;
+    // grouped parameters for publishing the 2D occupancy grid.
+    PublishOccupancyGridParams publish_occupancy_grid;
     // parameters of the topic to publish the update time
     Ros2TopicParams update_time_topic{"update_time"};
     // parameters of the topic to publish the query time
@@ -168,37 +267,15 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, surface_mapping_setting_file),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, surface_mapping_type),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, sdf_mapping_setting_file),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, use_odom),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, odom_topic),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, odom_msg_type),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, odom_queue_size),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, odom),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, world_frame),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, sensor_frame),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, scan_topic),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, scan_type),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, scan_frame_type),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, scan_frame_setting_file),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, scan_stride),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, convert_scan_to_points),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, scan_in_local_frame),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, depth_scale),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, store_color),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, paint_surface_topic),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, paint_surface_overwrite),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, scan),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, paint_surface),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_tree),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_tree_binary),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_tree_frequency),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, tree_topic),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_surface_points),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_surface_points_frequency),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, surface_points_topic),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_mesh),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_mesh_frequency),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, mesh_topic),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_occupancy_grid),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, publish_occupancy_grid_frequency),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, occupancy_grid_topic),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, height_map_projector_setting_file),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, update_time_topic),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, query_time_topic),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, sdf_query_service),
@@ -241,72 +318,77 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
                 sdf_mapping_setting_file.c_str());
             return false;
         }
-        if (use_odom && odom_topic.path.empty()) {
-            RCLCPP_WARN(logger, "odom_topic.path is empty but use_odom is true");
+        if (odom.enabled && odom.topic.path.empty()) {
+            RCLCPP_WARN(logger, "odom.topic.path is empty but odom.enabled is true");
             return false;
         }
-        if (odom_queue_size <= 0) {
-            RCLCPP_WARN(logger, "odom_queue_size must be positive");
+        if (odom.queue_size <= 0) {
+            RCLCPP_WARN(logger, "odom.queue_size must be positive");
             return false;
         }
         if (world_frame.empty()) {
             RCLCPP_WARN(logger, "world_frame is empty");
             return false;
         }
-        if (!use_odom && sensor_frame.empty()) {
-            RCLCPP_WARN(logger, "sensor_frame is empty but use_odom is false");
+        if (!odom.enabled && sensor_frame.empty()) {
+            RCLCPP_WARN(logger, "sensor_frame is empty but odom.enabled is false");
             return false;
         }
-        if (scan_topic.path.empty()) {
-            RCLCPP_WARN(logger, "scan_topic is empty");
+        if (scan.topic.path.empty()) {
+            RCLCPP_WARN(logger, "scan.topic is empty");
             return false;
         }
-        if (scan_stride <= 0) {
-            RCLCPP_WARN(logger, "scan_stride must be positive");
+        if (scan.stride <= 0) {
+            RCLCPP_WARN(logger, "scan.stride must be positive");
             return false;
         }
-        if (convert_scan_to_points) {
-            if (scan_frame_setting_file.empty()) {
-                RCLCPP_WARN(logger, "For scan conversion, scan_frame_setting_file must be set.");
+        if (scan.convert_to_points) {
+            if (scan.frame_setting_file.empty()) {
+                RCLCPP_WARN(logger, "For scan conversion, scan.frame_setting_file must be set.");
                 return false;
             }
-            if (!std::filesystem::exists(scan_frame_setting_file)) {
+            if (!std::filesystem::exists(scan.frame_setting_file)) {
                 RCLCPP_WARN(
                     logger,
                     "Scan frame setting file %s does not exist.",
-                    scan_frame_setting_file.c_str());
+                    scan.frame_setting_file.c_str());
                 return false;
             }
         }
-        if (publish_tree) {
-            if (tree_topic.path.empty()) {
-                RCLCPP_WARN(logger, "tree_topic.path is empty but publish_tree is true");
-                return false;
-            }
-            if (publish_tree_frequency <= 0.0) {
-                RCLCPP_WARN(logger, "publish_tree_frequency must be positive");
-                return false;
-            }
-        }
-        if (publish_surface_points) {
-            if (surface_points_topic.path.empty()) {
+        if (publish_tree.enabled) {
+            if (publish_tree.topic.path.empty()) {
                 RCLCPP_WARN(
                     logger,
-                    "surface_points_topic.path is empty but publish_surface_points is true");
+                    "publish_tree.topic.path is empty but publish_tree.enabled is true");
                 return false;
             }
-            if (publish_surface_points_frequency <= 0.0) {
-                RCLCPP_WARN(logger, "publish_surface_points_frequency must be positive");
+            if (publish_tree.frequency <= 0.0) {
+                RCLCPP_WARN(logger, "publish_tree.frequency must be positive");
                 return false;
             }
         }
-        if (publish_mesh) {
-            if (mesh_topic.path.empty()) {
-                RCLCPP_WARN(logger, "mesh_topic.path is empty but publish_mesh is true");
+        if (publish_surface_points.enabled) {
+            if (publish_surface_points.topic.path.empty()) {
+                RCLCPP_WARN(
+                    logger,
+                    "publish_surface_points.topic.path is empty but publish_surface_points.enabled "
+                    "is true");
                 return false;
             }
-            if (publish_mesh_frequency <= 0.0) {
-                RCLCPP_WARN(logger, "publish_mesh_frequency must be positive");
+            if (publish_surface_points.frequency <= 0.0) {
+                RCLCPP_WARN(logger, "publish_surface_points.frequency must be positive");
+                return false;
+            }
+        }
+        if (publish_mesh.enabled) {
+            if (publish_mesh.topic.path.empty()) {
+                RCLCPP_WARN(
+                    logger,
+                    "publish_mesh.topic.path is empty but publish_mesh.enabled is true");
+                return false;
+            }
+            if (publish_mesh.frequency <= 0.0) {
+                RCLCPP_WARN(logger, "publish_mesh.frequency must be positive");
                 return false;
             }
         }
@@ -338,38 +420,25 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
             RCLCPP_WARN(logger, "save_mesh_service.path is empty");
             return false;
         }
-        if (publish_occupancy_grid) {
-            if (occupancy_grid_topic.path.empty()) {
+        if (publish_occupancy_grid.enabled) {
+            if (publish_occupancy_grid.topic.path.empty()) {
                 RCLCPP_WARN(
                     logger,
-                    "occupancy_grid_topic.path is empty but publish_occupancy_grid is true");
+                    "publish_occupancy_grid.topic.path is empty but publish_occupancy_grid.enabled "
+                    "is true");
                 return false;
             }
-            if (publish_occupancy_grid_frequency <= 0.0) {
-                RCLCPP_WARN(logger, "publish_occupancy_grid_frequency must be positive");
-                return false;
-            }
-            if (height_map_projector_setting_file.empty()) {
-                RCLCPP_WARN(
-                    logger,
-                    "height_map_projector_setting_file is empty but publish_occupancy_grid is "
-                    "true");
-                return false;
-            }
-            if (!std::filesystem::exists(height_map_projector_setting_file)) {
-                RCLCPP_WARN(
-                    logger,
-                    "height_map_projector_setting_file %s does not exist",
-                    height_map_projector_setting_file.c_str());
+            if (publish_occupancy_grid.frequency <= 0.0) {
+                RCLCPP_WARN(logger, "publish_occupancy_grid.frequency must be positive");
                 return false;
             }
         }
-        if (store_color && scan_type != ScanType::PointCloud) {
+        if (paint_surface.color_from_scan && scan.type != ScanType::PointCloud) {
             RCLCPP_WARN(
                 logger,
-                "store_color is true but scan_type is not 'point_cloud'. "
-                "Color extraction is only supported for point cloud input. Disabling store_color.");
-            store_color = false;
+                "paint_surface.color_from_scan is true but scan.type is not 'point_cloud'. "
+                "Color extraction is only supported for point cloud input. Disabling it.");
+            paint_surface.color_from_scan = false;
         }
         return true;
     }
@@ -412,6 +481,11 @@ class SdfMappingNode : public rclcpp::Node {
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr m_sub_point_cloud_;
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr m_sub_depth_image_;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr m_sub_paint_surface_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr m_sub_paint_surface_image_;
+    Matrix3 m_paint_intrinsic_matrix_ = Matrix3::Zero();
+    cv::Mat m_paint_image_bgra_buffer_;
+    // true once a paint-surface subscription has been created (regardless of mode).
+    bool m_paint_surface_enabled_ = false;
     rclcpp::Service<erl_gp_sdf_msgs::srv::SdfQuery>::SharedPtr m_srv_query_sdf_;
     rclcpp::Service<erl_gp_sdf_msgs::srv::OccQuery>::SharedPtr m_srv_occ_query_;
     rclcpp::Service<erl_gp_sdf_msgs::srv::SaveMap>::SharedPtr m_srv_load_map_;
@@ -436,7 +510,6 @@ class SdfMappingNode : public rclcpp::Node {
 
     std::shared_ptr<YamlableBase> m_surface_mapping_cfg_ = nullptr;
     std::shared_ptr<AbstractSurfaceMapping> m_surface_mapping_ = nullptr;
-    // BHSM handle for color ingestion (store_color + paint voxels); null if the mapping is not BHSM
     std::shared_ptr<BayesianHilbertSurfaceMapping> m_bhm_ = nullptr;
     std::shared_ptr<typename GpSdfMapping::Setting> m_sdf_mapping_cfg_ = nullptr;
     std::shared_ptr<GpSdfMapping> m_sdf_mapping_ = nullptr;
@@ -461,7 +534,7 @@ class SdfMappingNode : public rclcpp::Node {
     std::shared_ptr<RangeSensorFrame3D> m_scan_frame_3d_ = nullptr;
 
     // for color storage
-    ColorMatrix m_point_colors_;  // 4xN RGBA, populated when store_color is true
+    ColorMatrix m_point_colors_;  // 4xN RGBA, populated when paint_surface.color_from_scan is true
     bool m_received_colors_ = false;
 
 public:
@@ -545,29 +618,30 @@ public:
             return;
         }
         m_sdf_mapping_ = std::make_shared<GpSdfMapping>(m_sdf_mapping_cfg_, m_surface_mapping_);
-        if (!m_setting_.paint_surface_topic.path.empty()) {
-            if (m_setting_.store_color) {
+        if (!m_setting_.paint_surface.topic.path.empty()) {
+            if (m_setting_.paint_surface.color_from_scan) {
                 RCLCPP_WARN(
                     logger,
-                    "paint_surface_topic is set, ignoring store_color. "
-                    "Coloring will come from the paint_surface_topic instead.");
-                m_setting_.store_color = false;
+                    "paint_surface.topic is set, ignoring paint_surface.color_from_scan. "
+                    "Coloring will come from the paint_surface.topic instead.");
+                m_setting_.paint_surface.color_from_scan = false;
             }
         }
-        // Resolve a BHSM handle once; used for both store_color and paint voxels.
+        // Resolve a BHSM handle once; used for both paint_surface.color_from_scan and paint voxels.
         m_bhm_ = std::dynamic_pointer_cast<BayesianHilbertSurfaceMapping>(m_surface_mapping_);
-        if (m_setting_.store_color) {
+        if (m_setting_.paint_surface.color_from_scan) {
             if (m_bhm_) {
                 RCLCPP_INFO(
                     logger,
-                    "store_color is true; per-point colors will be folded into surface voxels "
+                    "paint_surface.color_from_scan is true; per-point colors will be folded into "
+                    "surface voxels "
                     "after each Update via PaintVoxels.");
             } else {
                 RCLCPP_WARN(
                     logger,
-                    "store_color is true but surface mapping is not a "
-                    "BayesianHilbertSurfaceMapping. Disabling store_color.");
-                m_setting_.store_color = false;
+                    "paint_surface.color_from_scan is true but surface mapping is not a "
+                    "BayesianHilbertSurfaceMapping. Disabling paint_surface.color_from_scan.");
+                m_setting_.paint_surface.color_from_scan = false;
             }
         }
         RCLCPP_INFO(
@@ -580,12 +654,12 @@ public:
             m_surface_mapping_cfg_->AsYamlString().c_str());
         RCLCPP_INFO(logger, "SDF mapping config:\n%s", m_sdf_mapping_cfg_->AsYamlString().c_str());
 
-        if (m_setting_.use_odom) {
-            switch (m_setting_.odom_msg_type) {
+        if (m_setting_.odom.enabled) {
+            switch (m_setting_.odom.msg_type) {
                 case OdomType::Odometry: {
                     m_sub_odom_ = this->create_subscription<nav_msgs::msg::Odometry>(
-                        m_setting_.odom_topic.path,
-                        m_setting_.odom_topic.GetQoS(),
+                        m_setting_.odom.topic.path,
+                        m_setting_.odom.topic.GetQoS(),
                         std::bind(
                             &SdfMappingNode::CallbackOdomOdometry,
                             this,
@@ -595,8 +669,8 @@ public:
                 case OdomType::TransformStamped: {
                     m_sub_odom_transform_ =
                         this->create_subscription<geometry_msgs::msg::TransformStamped>(
-                            m_setting_.odom_topic.path,
-                            m_setting_.odom_topic.GetQoS(),
+                            m_setting_.odom.topic.path,
+                            m_setting_.odom.topic.GetQoS(),
                             std::bind(
                                 &SdfMappingNode::CallbackOdomTransformStamped,
                                 this,
@@ -607,83 +681,110 @@ public:
                     RCLCPP_FATAL(
                         logger,
                         "Invalid odometry message type: %d",
-                        static_cast<int>(m_setting_.odom_msg_type));
+                        static_cast<int>(m_setting_.odom.msg_type));
                     rclcpp::shutdown();
                     return;
                 }
             }
-            m_odom_queue_.reserve(m_setting_.odom_queue_size);
+            m_odom_queue_.reserve(m_setting_.odom.queue_size);
         }
 
-        switch (m_setting_.scan_type) {
+        bool are_points = false;
+        switch (m_setting_.scan.type) {
             case ScanType::Laser:
                 RCLCPP_INFO(
                     logger,
                     "Subscribing to %s as laser scan",
-                    m_setting_.scan_topic.path.c_str());
+                    m_setting_.scan.topic.path.c_str());
                 m_sub_laser_scan_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
-                    m_setting_.scan_topic.path,
-                    m_setting_.scan_topic.GetQoS(),
+                    m_setting_.scan.topic.path,
+                    m_setting_.scan.topic.GetQoS(),
                     std::bind(&SdfMappingNode::CallbackLaserScan, this, std::placeholders::_1));
                 break;
             case ScanType::PointCloud:
                 RCLCPP_INFO(
                     logger,
                     "Subscribing to %s as point cloud",
-                    m_setting_.scan_topic.path.c_str());
+                    m_setting_.scan.topic.path.c_str());
+                are_points = true;
                 m_sub_point_cloud_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-                    m_setting_.scan_topic.path,
-                    m_setting_.scan_topic.GetQoS(),
+                    m_setting_.scan.topic.path,
+                    m_setting_.scan.topic.GetQoS(),
                     std::bind(&SdfMappingNode::CallbackPointCloud2, this, std::placeholders::_1));
                 break;
             case ScanType::Depth:
                 RCLCPP_INFO(
                     logger,
                     "Subscribing to %s as depth image",
-                    m_setting_.scan_topic.path.c_str());
+                    m_setting_.scan.topic.path.c_str());
                 m_sub_depth_image_ = this->create_subscription<sensor_msgs::msg::Image>(
-                    m_setting_.scan_topic.path,
-                    m_setting_.scan_topic.GetQoS(),
+                    m_setting_.scan.topic.path,
+                    m_setting_.scan.topic.GetQoS(),
                     std::bind(&SdfMappingNode::CallbackDepthImage, this, std::placeholders::_1));
                 break;
         }
 
         if constexpr (Dim == 3) {
-            if (!m_setting_.paint_surface_topic.path.empty()) {
+            if (!m_setting_.paint_surface.topic.path.empty()) {
                 if (m_bhm_) {
-                    RCLCPP_INFO(
-                        logger,
-                        "Subscribing to %s for voxel painting",
-                        m_setting_.paint_surface_topic.path.c_str());
-                    m_sub_paint_surface_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-                        m_setting_.paint_surface_topic.path,
-                        m_setting_.paint_surface_topic.GetQoS(),
-                        std::bind(
-                            &SdfMappingNode::CallbackPaintVoxels,
-                            this,
-                            std::placeholders::_1));
+                    if (m_setting_.paint_surface.topic_type == "pcd") {
+                        RCLCPP_INFO(
+                            logger,
+                            "Subscribing to %s (PointCloud2) for voxel painting",
+                            m_setting_.paint_surface.topic.path.c_str());
+                        m_sub_paint_surface_ =
+                            this->create_subscription<sensor_msgs::msg::PointCloud2>(
+                                m_setting_.paint_surface.topic.path,
+                                m_setting_.paint_surface.topic.GetQoS(),
+                                std::bind(
+                                    &SdfMappingNode::CallbackPaintVoxelsPcd,
+                                    this,
+                                    std::placeholders::_1));
+                    } else {
+                        m_paint_intrinsic_matrix_ =
+                            m_setting_.paint_surface.camera_intrinsic.GetIntrinsicMatrix()
+                                .template cast<Dtype>();
+                        RCLCPP_INFO(
+                            logger,
+                            "Subscribing to %s (Image) for voxel painting with fx=%f fy=%f cx=%f "
+                            "cy=%f",
+                            m_setting_.paint_surface.topic.path.c_str(),
+                            m_setting_.paint_surface.camera_intrinsic.camera_fx,
+                            m_setting_.paint_surface.camera_intrinsic.camera_fy,
+                            m_setting_.paint_surface.camera_intrinsic.camera_cx,
+                            m_setting_.paint_surface.camera_intrinsic.camera_cy);
+                        m_sub_paint_surface_image_ =
+                            this->create_subscription<sensor_msgs::msg::Image>(
+                                m_setting_.paint_surface.topic.path,
+                                m_setting_.paint_surface.topic.GetQoS(),
+                                std::bind(
+                                    &SdfMappingNode::CallbackPaintVoxelsImage,
+                                    this,
+                                    std::placeholders::_1));
+                    }
+                    m_paint_surface_enabled_ = true;
                 } else {
                     RCLCPP_WARN(
                         logger,
-                        "paint_surface_topic is set but surface mapping is not a "
-                        "BayesianHilbertSurfaceMapping. Ignoring paint_surface_topic.");
+                        "paint_surface.topic is set but surface mapping is not a "
+                        "BayesianHilbertSurfaceMapping. Ignoring paint_surface.");
                 }
             }
         } else {  // constexpr Dim == 2
-            if (!m_setting_.paint_surface_topic.path.empty()) {
-                RCLCPP_WARN(logger, "paint_surface_topic is only supported for 3D. Ignoring.");
+            if (!m_setting_.paint_surface.topic.path.empty()) {
+                RCLCPP_WARN(logger, "paint_surface.topic is only supported for 3D. Ignoring.");
             }
         }
 
-        if (m_setting_.convert_scan_to_points) {
+        if (!are_points && m_setting_.scan.convert_to_points) {
             if (Dim == 2) {
                 auto frame_setting = std::make_shared<typename LidarFrame2D::Setting>();
                 try {
-                    if (!frame_setting->FromYamlFile(m_setting_.scan_frame_setting_file)) {
+                    if (!frame_setting->FromYamlFile(m_setting_.scan.frame_setting_file)) {
                         RCLCPP_FATAL(
                             logger,
                             "Failed to load %s with frame type %s",
-                            m_setting_.scan_frame_setting_file.c_str(),
+                            m_setting_.scan.frame_setting_file.c_str(),
                             m_setting_.surface_mapping_type.c_str());
                         rclcpp::shutdown();
                         return;
@@ -692,29 +793,29 @@ public:
                     RCLCPP_FATAL(
                         logger,
                         "Failed to load %s with frame type %s: %s",
-                        m_setting_.scan_frame_setting_file.c_str(),
+                        m_setting_.scan.frame_setting_file.c_str(),
                         m_setting_.surface_mapping_type.c_str(),
                         e.what());
                     rclcpp::shutdown();
                     return;
                 }
-                if (m_setting_.scan_stride > 1) {
-                    frame_setting->Resize(1.0f / static_cast<Dtype>(m_setting_.scan_stride));
+                if (m_setting_.scan.stride > 1) {
+                    frame_setting->Resize(1.0f / static_cast<Dtype>(m_setting_.scan.stride));
                 }
                 m_scan_frame_2d_ = std::make_shared<LidarFrame2D>(frame_setting);
                 RCLCPP_INFO(
                     logger,
                     "Created scan frame of type %s with setting:\n%s",
-                    m_setting_.scan_frame_type.c_str(),
+                    m_setting_.scan.frame_type.c_str(),
                     frame_setting->AsYamlString().c_str());
-            } else if (m_setting_.scan_frame_type == type_name<LidarFrame3D>()) {
+            } else if (m_setting_.scan.frame_type == type_name<LidarFrame3D>()) {
                 auto frame_setting = std::make_shared<typename LidarFrame3D::Setting>();
                 try {
-                    if (!frame_setting->FromYamlFile(m_setting_.scan_frame_setting_file)) {
+                    if (!frame_setting->FromYamlFile(m_setting_.scan.frame_setting_file)) {
                         RCLCPP_FATAL(
                             logger,
                             "Failed to load %s",
-                            m_setting_.scan_frame_setting_file.c_str());
+                            m_setting_.scan.frame_setting_file.c_str());
                         rclcpp::shutdown();
                         return;
                     }
@@ -722,29 +823,29 @@ public:
                     RCLCPP_FATAL(
                         logger,
                         "Failed to load %s with frame type %s: %s",
-                        m_setting_.scan_frame_setting_file.c_str(),
+                        m_setting_.scan.frame_setting_file.c_str(),
                         m_setting_.surface_mapping_type.c_str(),
                         e.what());
                     rclcpp::shutdown();
                     return;
                 }
-                if (m_setting_.scan_stride > 1) {
-                    frame_setting->Resize(1.0f / static_cast<Dtype>(m_setting_.scan_stride));
+                if (m_setting_.scan.stride > 1) {
+                    frame_setting->Resize(1.0f / static_cast<Dtype>(m_setting_.scan.stride));
                 }
                 m_scan_frame_3d_ = std::make_shared<LidarFrame3D>(frame_setting);
                 RCLCPP_INFO(
                     logger,
                     "Created scan frame of type %s with setting:\n%s",
-                    m_setting_.scan_frame_type.c_str(),
+                    m_setting_.scan.frame_type.c_str(),
                     frame_setting->AsYamlString().c_str());
-            } else if (m_setting_.scan_frame_type == type_name<DepthFrame3D>()) {
+            } else if (m_setting_.scan.frame_type == type_name<DepthFrame3D>()) {
                 auto frame_setting = std::make_shared<typename DepthFrame3D::Setting>();
                 try {
-                    if (!frame_setting->FromYamlFile(m_setting_.scan_frame_setting_file)) {
+                    if (!frame_setting->FromYamlFile(m_setting_.scan.frame_setting_file)) {
                         RCLCPP_FATAL(
                             logger,
                             "Failed to load %s",
-                            m_setting_.scan_frame_setting_file.c_str());
+                            m_setting_.scan.frame_setting_file.c_str());
                         rclcpp::shutdown();
                         return;
                     }
@@ -752,26 +853,26 @@ public:
                     RCLCPP_FATAL(
                         logger,
                         "Failed to load %s with frame type %s: %s",
-                        m_setting_.scan_frame_setting_file.c_str(),
+                        m_setting_.scan.frame_setting_file.c_str(),
                         m_setting_.surface_mapping_type.c_str(),
                         e.what());
                     rclcpp::shutdown();
                     return;
                 }
-                if (m_setting_.scan_stride > 1) {
-                    frame_setting->Resize(1.0f / static_cast<Dtype>(m_setting_.scan_stride));
+                if (m_setting_.scan.stride > 1) {
+                    frame_setting->Resize(1.0f / static_cast<Dtype>(m_setting_.scan.stride));
                 }
                 m_scan_frame_3d_ = std::make_shared<DepthFrame3D>(frame_setting);
                 RCLCPP_INFO(
                     logger,
                     "Created scan frame of type %s with setting:\n%s",
-                    m_setting_.scan_frame_type.c_str(),
+                    m_setting_.scan.frame_type.c_str(),
                     frame_setting->AsYamlString().c_str());
             } else {
                 RCLCPP_FATAL(
                     logger,
                     "Invalid scan frame type: %s",
-                    m_setting_.scan_frame_type.c_str());
+                    m_setting_.scan.frame_type.c_str());
                 rclcpp::shutdown();
                 return;
             }
@@ -862,7 +963,7 @@ public:
             m_setting_.occ_query_service.GetQoS());
 #endif
         // publish the occupancy tree used by the surface mapping
-        if (m_setting_.publish_tree) {
+        if (m_setting_.publish_tree.enabled) {
             if (!TryToGetSurfaceMappingTree()) {
                 RCLCPP_FATAL(logger, "Failed to get surface mapping tree");
                 rclcpp::shutdown();
@@ -870,23 +971,23 @@ public:
             }
             // create the publisher for the occupancy tree
             m_pub_tree_ = this->create_publisher<erl_geometry_msgs::msg::OccupancyTreeMsg>(
-                m_setting_.tree_topic.path,
-                m_setting_.tree_topic.GetQoS());
+                m_setting_.publish_tree.topic.path,
+                m_setting_.publish_tree.topic.GetQoS());
             // initialize the tree message
             m_msg_tree_.header.frame_id = m_setting_.world_frame;
             m_msg_tree_.header.stamp = this->get_clock()->now();
             // create a timer to publish the tree at the specified frequency
             m_pub_tree_timer_ = this->create_wall_timer(
-                std::chrono::duration<double>(1.0 / m_setting_.publish_tree_frequency),
+                std::chrono::duration<double>(1.0 / m_setting_.publish_tree.frequency),
                 std::bind(&SdfMappingNode::CallbackPublishTree, this));
         }
 
         // publish the surface points used by the sdf mapping
-        if (m_setting_.publish_surface_points) {
+        if (m_setting_.publish_surface_points.enabled) {
             // create the publisher for the surface points
             m_pub_surface_points_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
-                m_setting_.surface_points_topic.path,
-                m_setting_.surface_points_topic.GetQoS());
+                m_setting_.publish_surface_points.topic.path,
+                m_setting_.publish_surface_points.topic.GetQoS());
             // initialize the point cloud message
             m_msg_surface_points_.header.frame_id = m_setting_.world_frame;
             m_msg_surface_points_.header.stamp = this->get_clock()->now();
@@ -912,53 +1013,55 @@ public:
             m_msg_surface_points_.height = 1;            // unorganized point cloud
             // create a timer to publish the surface points at the specified frequency
             m_pub_surface_points_timer_ = this->create_wall_timer(
-                std::chrono::duration<double>(1.0 / m_setting_.publish_surface_points_frequency),
+                std::chrono::duration<double>(1.0 / m_setting_.publish_surface_points.frequency),
                 std::bind(&SdfMappingNode::CallbackPublishSurfacePoints, this));
         }
 
         // publish the mesh built by the surface mapping
-        if (m_setting_.publish_mesh) {
+        if (m_setting_.publish_mesh.enabled) {
             // create the publisher for the mesh
             m_pub_mesh_ = this->create_publisher<erl_geometry_msgs::msg::MeshMsg>(
-                m_setting_.mesh_topic.path,
-                m_setting_.mesh_topic.GetQoS());
+                m_setting_.publish_mesh.topic.path,
+                m_setting_.publish_mesh.topic.GetQoS());
             // initialize the mesh message
             m_msg_mesh_.header.frame_id = m_setting_.world_frame;
             m_msg_mesh_.header.stamp = this->get_clock()->now();
             // create a timer to publish the mesh at the specified frequency
             m_pub_mesh_timer_ = this->create_wall_timer(
-                std::chrono::duration<double>(1.0 / m_setting_.publish_mesh_frequency),
+                std::chrono::duration<double>(1.0 / m_setting_.publish_mesh.frequency),
                 std::bind(&SdfMappingNode::CallbackPublishMesh, this));
         }
 
         // publish the 2D occupancy grid projected from the 3D height map
         if constexpr (Dim == 3) {
-            if (m_setting_.publish_occupancy_grid) {
-                // load height map projector setting
+            if (m_setting_.publish_occupancy_grid.enabled) {
                 using HMPSetting = erl::gp_sdf::HeightMapProjectorSetting<Dtype>;
                 auto hmp_setting = std::make_shared<HMPSetting>();
-                if (!hmp_setting->FromYamlFile(m_setting_.height_map_projector_setting_file)) {
-                    RCLCPP_FATAL(
-                        logger,
-                        "Failed to load height map projector setting from %s",
-                        m_setting_.height_map_projector_setting_file.c_str());
-                    rclcpp::shutdown();
-                    return;
-                }
+                const auto &src = m_setting_.publish_occupancy_grid.height_map_projector;
+                hmp_setting->target_resolution = static_cast<Dtype>(src.target_resolution);
+                hmp_setting->robot_height = static_cast<Dtype>(src.robot_height);
+                hmp_setting->max_step_height = static_cast<Dtype>(src.max_step_height);
+                hmp_setting->ground_z_min = static_cast<Dtype>(src.ground_z_min);
+                hmp_setting->ground_z_max = static_cast<Dtype>(src.ground_z_max);
+                hmp_setting->min_normal_z = static_cast<Dtype>(src.min_normal_z);
+                hmp_setting->sensor_z_change_threshold =
+                    static_cast<Dtype>(src.sensor_z_change_threshold);
+                hmp_setting->use_bounding_box = src.use_bounding_box;
+                hmp_setting->bounding_box = src.bounding_box.template Cast<Dtype>();
 
                 m_height_map_projector_ =
                     std::make_unique<erl::gp_sdf::HeightMapProjector<Dtype>>(hmp_setting);
 
                 // create the publisher
                 m_pub_occupancy_grid_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(
-                    m_setting_.occupancy_grid_topic.path,
-                    m_setting_.occupancy_grid_topic.GetQoS());
+                    m_setting_.publish_occupancy_grid.topic.path,
+                    m_setting_.publish_occupancy_grid.topic.GetQoS());
                 m_msg_occupancy_grid_.header.frame_id = m_setting_.world_frame;
 
                 // create the timer
                 m_pub_occupancy_grid_timer_ = this->create_wall_timer(
                     std::chrono::duration<double>(
-                        1.0 / m_setting_.publish_occupancy_grid_frequency),
+                        1.0 / m_setting_.publish_occupancy_grid.frequency),
                     std::bind(&SdfMappingNode::CallbackPublishOccupancyGrid, this));
             }
         }
@@ -983,24 +1086,24 @@ private:
         auto logger = this->get_logger();
 
         // more checks
-        if (m_setting_.convert_scan_to_points) {
+        if (m_setting_.scan.convert_to_points) {
             if (Dim == 2) {
-                if (m_setting_.scan_frame_type != type_name<LidarFrame2D>()) {
+                if (m_setting_.scan.frame_type != type_name<LidarFrame2D>()) {
                     RCLCPP_WARN(
                         logger,
                         "For 2D scans, scan_frame_type is %s but must be %s.",
-                        m_setting_.scan_frame_type.c_str(),
+                        m_setting_.scan.frame_type.c_str(),
                         type_name<LidarFrame2D>().c_str());
                 }
             } else {
-                if (m_setting_.scan_frame_type != type_name<LidarFrame3D>() &&
-                    m_setting_.scan_frame_type != type_name<DepthFrame3D>()) {
+                if (m_setting_.scan.frame_type != type_name<LidarFrame3D>() &&
+                    m_setting_.scan.frame_type != type_name<DepthFrame3D>()) {
                     RCLCPP_WARN(
                         logger,
                         "For 3D scans, scan_frame_type must be %s or %s. Not %s.",
                         type_name<LidarFrame3D>().c_str(),
                         type_name<DepthFrame3D>().c_str(),
-                        m_setting_.scan_frame_type.c_str());
+                        m_setting_.scan.frame_type.c_str());
                     return false;
                 }
             }
@@ -1034,7 +1137,7 @@ private:
     std::tuple<bool, Rotation, Translation>
     GetSensorPose(const rclcpp::Time &time) {
         auto logger = this->get_logger();
-        if (m_setting_.use_odom) {
+        if (m_setting_.odom.enabled) {
             geometry_msgs::msg::TransformStamped transform;
 
             {
@@ -1147,7 +1250,7 @@ private:
     void
     CallbackOdomOdometry(const nav_msgs::msg::Odometry::SharedPtr msg) {
         std::lock_guard<std::mutex> lock(m_odom_queue_lock_);
-        if (static_cast<int64_t>(m_odom_queue_.size()) >= m_setting_.odom_queue_size) {
+        if (static_cast<int64_t>(m_odom_queue_.size()) >= m_setting_.odom.queue_size) {
             auto &transform = m_odom_queue_[m_odom_queue_head_];
             transform.header = msg->header;
             transform.child_frame_id = msg->child_frame_id;
@@ -1155,7 +1258,7 @@ private:
             transform.transform.translation.x = msg->pose.pose.position.x;
             transform.transform.translation.y = msg->pose.pose.position.y;
             transform.transform.translation.z = msg->pose.pose.position.z;
-            m_odom_queue_head_ = (m_odom_queue_head_ + 1) % m_setting_.odom_queue_size;
+            m_odom_queue_head_ = (m_odom_queue_head_ + 1) % m_setting_.odom.queue_size;
         } else {
             geometry_msgs::msg::TransformStamped transform;
             transform.header = msg->header;
@@ -1172,12 +1275,12 @@ private:
     void
     CallbackOdomTransformStamped(const geometry_msgs::msg::TransformStamped::SharedPtr msg) {
         std::lock_guard<std::mutex> lock(m_odom_queue_lock_);
-        if (static_cast<int64_t>(m_odom_queue_.size()) >= m_setting_.odom_queue_size) {
+        if (static_cast<int64_t>(m_odom_queue_.size()) >= m_setting_.odom.queue_size) {
             auto &transform = m_odom_queue_[m_odom_queue_head_];
             transform.header = msg->header;
             transform.child_frame_id = msg->child_frame_id;
             transform.transform = msg->transform;
-            m_odom_queue_head_ = (m_odom_queue_head_ + 1) % m_setting_.odom_queue_size;
+            m_odom_queue_head_ = (m_odom_queue_head_ + 1) % m_setting_.odom.queue_size;
         } else {
             m_odom_queue_.push_back(*msg);
             ++m_odom_queue_head_;
@@ -1203,7 +1306,7 @@ private:
     }
 
     void
-    CallbackPaintVoxels(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
+    CallbackPaintVoxelsPcd(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
         if constexpr (Dim != 3) {
             (void) msg;
             return;
@@ -1291,12 +1394,18 @@ private:
             Matrix3X points(3, max_points);
             ColorMatrix colors(4, max_points);
             long count = 0;
+            const Dtype max_dist_sq = m_setting_.paint_surface.max_distance > 0.0
+                                          ? static_cast<Dtype>(
+                                                m_setting_.paint_surface.max_distance *
+                                                m_setting_.paint_surface.max_distance)
+                                          : Dtype(0);
 
             auto extract_point = [&](const uint8_t *ptr, auto read_coord) {
                 Dtype x = static_cast<Dtype>(read_coord(ptr + xoff));
                 Dtype y = static_cast<Dtype>(read_coord(ptr + yoff));
                 Dtype z = static_cast<Dtype>(read_coord(ptr + zoff));
                 if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) { return; }
+                if (max_dist_sq > 0 && (x * x + y * y + z * z) > max_dist_sq) { return; }
                 auto point = points.col(count);
                 point[0] = x;
                 point[1] = y;
@@ -1342,15 +1451,95 @@ private:
             // transform points to world frame
             points = (rotation * points).colwise() + translation;
 
-            // paint the voxels under lock (parallel over local BHMs)
-            {
-                auto lock = m_surface_mapping_->GetLockGuard();
-                (void) m_bhm_->PaintVoxels(
-                    points,
-                    colors,
-                    m_setting_.paint_surface_overwrite,
-                    /*parallel=*/true);
+            (void) m_bhm_->PaintVoxels(
+                points,
+                colors,
+                m_setting_.paint_surface.overwrite,
+                /*parallel=*/true);
+        }  // else (Dim == 3)
+    }
+
+    void
+    CallbackPaintVoxelsImage(const sensor_msgs::msg::Image::SharedPtr msg) {
+        if constexpr (Dim != 3) {
+            (void) msg;
+            return;
+        } else {  // NOLINT
+            auto logger = this->get_logger();
+            if (!m_bhm_) {
+                RCLCPP_WARN_ONCE(
+                    logger,
+                    "PaintVoxels(image) callback: BayesianHilbertSurfaceMapping not available, "
+                    "skipping.");
+                return;
             }
+            if (msg->data.empty() || msg->width == 0 || msg->height == 0) { return; }
+
+            // Figure out the OpenCV type and conversion needed to reach BGRA (CV_8UC4).
+            const auto &enc = msg->encoding;
+            int src_cv_type = 0;
+            int cvt_code = -1;  // -1 means "already BGRA, just clone"
+            if (enc == sensor_msgs::image_encodings::BGRA8) {
+                src_cv_type = CV_8UC4;
+            } else if (enc == sensor_msgs::image_encodings::RGBA8) {
+                src_cv_type = CV_8UC4;
+                cvt_code = cv::COLOR_RGBA2BGRA;
+            } else if (enc == sensor_msgs::image_encodings::BGR8) {
+                src_cv_type = CV_8UC3;
+                cvt_code = cv::COLOR_BGR2BGRA;
+            } else if (enc == sensor_msgs::image_encodings::RGB8) {
+                src_cv_type = CV_8UC3;
+                cvt_code = cv::COLOR_RGB2BGRA;
+            } else {
+                RCLCPP_WARN_ONCE(
+                    logger,
+                    "PaintVoxels(image): unsupported encoding '%s' (need bgr8/rgb8/bgra8/rgba8), "
+                    "skipping.",
+                    enc.c_str());
+                return;
+            }
+
+            // Look up world <- camera transform.
+            geometry_msgs::msg::TransformStamped tf_stamped;
+            try {
+                tf_stamped = m_tf_buffer_->lookupTransform(
+                    m_setting_.world_frame,
+                    msg->header.frame_id,
+                    msg->header.stamp,
+                    rclcpp::Duration::from_seconds(0.5));
+            } catch (tf2::TransformException &ex) {
+                RCLCPP_WARN(logger, "PaintVoxels(image): TF lookup failed: %s", ex.what());
+                return;
+            }
+            const auto &tf = tf_stamped.transform;
+            const Matrix3 rotation_world_cam =
+                Eigen::Quaternion<Dtype>(tf.rotation.w, tf.rotation.x, tf.rotation.y, tf.rotation.z)
+                    .toRotationMatrix();
+            const Vector3 translation_world_cam(
+                tf.translation.x,
+                tf.translation.y,
+                tf.translation.z);
+
+            // Wrap msg->data as a cv::Mat (no copy) and produce a BGRA view for the mapper.
+            cv::Mat src(
+                static_cast<int>(msg->height),
+                static_cast<int>(msg->width),
+                src_cv_type,
+                const_cast<uint8_t *>(msg->data.data()),
+                static_cast<size_t>(msg->step));
+            if (cvt_code < 0) {
+                src.copyTo(m_paint_image_bgra_buffer_);
+            } else {
+                cv::cvtColor(src, m_paint_image_bgra_buffer_, cvt_code);
+            }
+
+            (void) m_bhm_->PaintVoxels(
+                m_paint_image_bgra_buffer_,
+                rotation_world_cam,
+                translation_world_cam,
+                m_paint_intrinsic_matrix_,
+                m_setting_.paint_surface.overwrite,
+                /*parallel=*/true);
         }  // else (Dim == 3)
     }
 
@@ -1368,8 +1557,8 @@ private:
         }
         scan = Eigen::Map<const Eigen::VectorXf>(scan_msg.ranges.data(), scan_msg.ranges.size())
                    .cast<Dtype>();
-        if (m_setting_.scan_stride > 1) {
-            scan = DownsampleEigenMatrix(scan, static_cast<int>(m_setting_.scan_stride), 1);
+        if (m_setting_.scan.stride > 1) {
+            scan = DownsampleEigenMatrix(scan, static_cast<int>(m_setting_.scan.stride), 1);
         }
         for (long i = 0; i < scan.size(); ++i) {
             if (!std::isfinite(scan(i, 0))) { scan(i, 0) = 0.0; }  // invalid range
@@ -1426,7 +1615,7 @@ private:
 
         // color extraction setup
         m_received_colors_ = false;
-        bool extract_color = m_setting_.store_color;
+        bool extract_color = m_setting_.paint_surface.color_from_scan;
         int32_t rgb_field_idx = -1;
         uint32_t rgb_off = 0;
         uint8_t rgb_type = 0;
@@ -1445,7 +1634,8 @@ private:
                     rgb_type != sensor_msgs::msg::PointField::UINT32) {
                     RCLCPP_WARN_ONCE(
                         logger,
-                        "store_color: unsupported rgb field type %d, disabling color extraction.",
+                        "paint_surface.color_from_scan: unsupported rgb field type %d, disabling "
+                        "color extraction.",
                         rgb_type);
                     rgb_field_idx = -1;
                 }
@@ -1453,7 +1643,8 @@ private:
             if (rgb_field_idx < 0) {
                 RCLCPP_WARN_ONCE(
                     logger,
-                    "store_color is true but point cloud has no usable rgb/rgba field. "
+                    "paint_surface.color_from_scan is true but point cloud has no usable rgb/rgba "
+                    "field. "
                     "Skipping color extraction for this message.");
                 extract_color = false;
             }
@@ -1463,7 +1654,7 @@ private:
         uint32_t row_step = cloud.row_step;
         auto width = static_cast<int>(cloud.width);
         auto height = static_cast<int>(cloud.height);
-        const auto scan_stride = static_cast<int>(m_setting_.scan_stride);
+        const auto scan_stride = static_cast<int>(m_setting_.scan.stride);
         if (scan_stride > 1) {
             width = (width + scan_stride - 1) / scan_stride;
             height = (height + scan_stride - 1) / scan_stride;
@@ -1576,11 +1767,11 @@ private:
             return false;
         }
         if (scan.size() > 0) {
-            if (m_setting_.scan_stride > 1) {
+            if (m_setting_.scan.stride > 1) {
                 scan = DownsampleEigenMatrix(
                     scan,
-                    static_cast<int>(m_setting_.scan_stride),
-                    static_cast<int>(m_setting_.scan_stride));
+                    static_cast<int>(m_setting_.scan.stride),
+                    static_cast<int>(m_setting_.scan.stride));
             }
             long cnt_valid = 0;
             Dtype *ptr = scan.data();
@@ -1596,7 +1787,7 @@ private:
                 m_depth_image_.reset();
                 return false;
             }
-            scan.array() *= static_cast<Dtype>(m_setting_.depth_scale);  // convert to meters
+            scan.array() *= static_cast<Dtype>(m_setting_.scan.depth_scale);  // convert to meters
         }
         m_depth_image_.reset();
         return true;
@@ -1616,7 +1807,7 @@ private:
 
         bool are_points = false;
         MatrixX scan;
-        switch (m_setting_.scan_type) {
+        switch (m_setting_.scan.type) {
             case ScanType::Laser:
                 if (!GetScanFromLaserScan(scan)) { return; }
                 are_points = false;
@@ -1630,8 +1821,8 @@ private:
                 are_points = false;
                 break;
         }
-        const bool in_local = m_setting_.scan_in_local_frame;
-        if (!are_points && m_setting_.convert_scan_to_points) {
+        const bool in_local = m_setting_.scan.in_local_frame;
+        if (!are_points && m_setting_.scan.convert_to_points) {
             if (Dim == 2) {
                 const std::vector<Vector2> &ray_directions =
                     m_scan_frame_2d_->GetRayDirectionsInFrame();
@@ -1677,9 +1868,6 @@ private:
             success = m_surface_mapping_->Update(rotation, translation, scan, are_points, in_local);
         }
         if (success && m_received_colors_ && m_bhm_ && are_points) {
-            // Fold per-point colors into surface voxels after the update. Voxels are
-            // created by the surface extraction pass inside Update; PaintVoxels only
-            // writes to tracked surface cells.
             MatrixDX points_world;
             if (in_local) {
                 points_world.noalias() = (rotation * scan).colwise() + translation;
@@ -1690,7 +1878,7 @@ private:
             (void) m_bhm_->PaintVoxels(
                 points_world,
                 m_point_colors_.leftCols(n),
-                /*overwrite=*/false,
+                m_setting_.paint_surface.overwrite,
                 /*parallel=*/true);
         }
         {
@@ -1838,9 +2026,6 @@ private:
         bool compute_gradient,
         std::shared_ptr<erl_gp_sdf_msgs::srv::OccQuery::Response> &res) {
 
-        auto lock = bhm->GetLockGuard();  // lock the surface mapping for thread safety
-        (void) lock;                      // avoid unused variable warning
-
         VectorX prob_occupied(n);
         MatrixDX gradients(Dim, n);
 
@@ -1905,11 +2090,8 @@ private:
         res->dim = Dim;
 
         // Try BayesianHilbertSurfaceMapping
-        auto bhm =
-            m_bhm_ ? m_bhm_
-                   : std::dynamic_pointer_cast<BayesianHilbertSurfaceMapping>(m_surface_mapping_);
-        if (bhm) {
-            FillBhmSdfQueryResponse(bhm, positions, n, mode, compute_gradient, res);
+        if (m_bhm_) {
+            FillBhmSdfQueryResponse(m_bhm_, positions, n, mode, compute_gradient, res);
             return;
         }
 
@@ -1928,9 +2110,6 @@ private:
                 res->reason = "GpOccSurfaceMapping has no occupancy tree";
                 return;
             }
-
-            auto lock = gp_occ->GetLockGuard();  // lock the tree for thread safety
-            (void) lock;                         // avoid unused variable warning
 
             res->results.resize(n);
             const bool is_logodd = (mode == "logodd");
@@ -1989,11 +2168,8 @@ private:
             res->success = false;
             return;
         }
-        {
-            auto lock = m_sdf_mapping_->GetLockGuard();
-            using Serializer = serialization::Serialization<GpSdfMapping>;
-            res->success = Serializer::Read(map_file, m_sdf_mapping_.get());
-        }
+        using Serializer = serialization::Serialization<GpSdfMapping>;
+        res->success = Serializer::Read(map_file, m_sdf_mapping_.get());
     }
 
     void
@@ -2013,11 +2189,8 @@ private:
         std::filesystem::path map_file = req->name;
         map_file = std::filesystem::absolute(map_file);
         std::filesystem::create_directories(map_file.parent_path());
-        {
-            auto lock = m_sdf_mapping_->GetLockGuard();
-            using Serializer = serialization::Serialization<GpSdfMapping>;
-            res->success = Serializer::Write(map_file, m_sdf_mapping_.get());
-        }
+        using Serializer = serialization::Serialization<GpSdfMapping>;
+        res->success = Serializer::Write(map_file, m_sdf_mapping_.get());
     }
 
     void
@@ -2037,24 +2210,20 @@ private:
         std::filesystem::path mesh_file = req->name;
         mesh_file = std::filesystem::absolute(mesh_file);
         std::filesystem::create_directories(mesh_file.parent_path());
-        using Color = typename AbstractSurfaceMapping::Color;
         std::vector<VectorD> vertices;
         std::vector<Eigen::Vector<int, Dim>> faces;
         std::vector<Color> face_colors;
-        const bool has_color = m_setting_.store_color || m_sub_paint_surface_;
-        {
-            auto lock = m_surface_mapping_->GetLockGuard();
-            try {
-                if (has_color) {
-                    res->success = m_surface_mapping_->GetMesh(false, vertices, faces, face_colors);
-                } else {
-                    res->success = m_surface_mapping_->GetMesh(false, vertices, faces);
-                }
-            } catch (const std::exception &e) {
-                RCLCPP_WARN(this->get_logger(), "Failed to get mesh: %s", e.what());
-                res->success = false;
-                return;
+        const bool has_color = m_setting_.paint_surface.color_from_scan || m_paint_surface_enabled_;
+        try {
+            if (has_color) {
+                res->success = m_surface_mapping_->GetMesh(false, vertices, faces, face_colors);
+            } else {
+                res->success = m_surface_mapping_->GetMesh(false, vertices, faces);
             }
+        } catch (const std::exception &e) {
+            RCLCPP_WARN(this->get_logger(), "Failed to get mesh: %s", e.what());
+            res->success = false;
+            return;
         }
 
         if (Dim == 2) {
@@ -2134,14 +2303,11 @@ private:
     CallbackPublishTree() {
         if (!m_tree_) { return; }
         if (m_pub_tree_->get_subscription_count() == 0) { return; }  // no subscribers
-        {
-            auto lock = m_surface_mapping_->GetLockGuard();
-            erl::geometry::SaveToOccupancyTreeMsg<Dtype>(
-                m_tree_,
-                m_surface_mapping_->GetScaling(),
-                m_setting_.publish_tree_binary,
-                m_msg_tree_);
-        }
+        erl::geometry::SaveToOccupancyTreeMsg<Dtype>(
+            m_tree_,
+            m_surface_mapping_->GetScaling(),
+            m_setting_.publish_tree.binary,
+            m_msg_tree_);
         m_msg_tree_.header.stamp = this->get_clock()->now();
         m_pub_tree_->publish(m_msg_tree_);
     }
@@ -2182,24 +2348,18 @@ private:
         if (m_pub_mesh_->get_subscription_count() == 0) { return; }  // no subscribers
         if (!m_surface_mapping_) { return; }
 
-        using Color = typename AbstractSurfaceMapping::Color;
         std::vector<VectorD> vertices;
         std::vector<Eigen::Vector<int, Dim>> faces;
         std::vector<Color> face_colors;
-        {
-            auto lock = m_surface_mapping_->GetLockGuard();
-            try {
-                if (m_setting_.store_color || m_sub_paint_surface_) {
-                    if (!m_surface_mapping_->GetMesh(false, vertices, faces, face_colors)) {
-                        return;
-                    }
-                } else {
-                    if (!m_surface_mapping_->GetMesh(false, vertices, faces)) { return; }
-                }
-            } catch (const std::exception &e) {
-                RCLCPP_WARN(this->get_logger(), "Failed to get mesh: %s", e.what());
-                return;
+        try {
+            if (m_setting_.paint_surface.color_from_scan || m_paint_surface_enabled_) {
+                if (!m_surface_mapping_->GetMesh(false, vertices, faces, face_colors)) { return; }
+            } else {
+                if (!m_surface_mapping_->GetMesh(false, vertices, faces)) { return; }
             }
+        } catch (const std::exception &e) {
+            RCLCPP_WARN(this->get_logger(), "Failed to get mesh: %s", e.what());
+            return;
         }
 
         auto &msg = m_msg_mesh_;
