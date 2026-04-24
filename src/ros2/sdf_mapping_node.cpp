@@ -469,6 +469,7 @@ class SdfMappingNode : public rclcpp::Node {
     using MatrixX = Eigen::MatrixX<Dtype>;
     using Matrix3X = Eigen::Matrix3X<Dtype>;
     using ColorMatrix = Eigen::Matrix<uint8_t, 4, Eigen::Dynamic>;
+    using Color = typename AbstractSurfaceMapping::Color;
     using RangeSensorFrame3D = erl::geometry::RangeSensorFrame3D<Dtype>;
     using LidarFrame2D = erl::geometry::LidarFrame2D<Dtype>;
     using LidarFrame3D = erl::geometry::LidarFrame3D<Dtype>;
