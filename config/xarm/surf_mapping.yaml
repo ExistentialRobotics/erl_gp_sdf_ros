@@ -1,52 +1,54 @@
+__base__: ../common/bayesian_hilbert_surf_mapping_float.yaml
 local_bhm:
     bhm:
         diagonal_sigma: true
-        min_distance: 0.3
-        max_distance: 3.5
+        min_distance: 0.15
+        max_distance: 1.5
         sampling_area_scale: 2.5
         free_points_per_meter: 3
         free_sampling_margin: 0.001
-        init_mu: 0.0
+        init_mu: 5.0
         init_sigma: 10000
         num_em_iterations: 1
-        sparse_zero_threshold: 0.001
+        sparse_zero_threshold: 0.003
         use_sparse: true
     kernel_type: erl::covariance::RadialBiasFunction<float, 3>
     kernel_setting_type: erl::covariance::Covariance<float>::Setting
     kernel:
         x_dim: 3
-        scale: 0.025
+        scale: 0.012
         scale_mix: 1
         weights: []
-    min_dataset_size: 64
-    min_dataset_hit_size: 32
+    min_dataset_size: 30
+    min_dataset_hit_size: 15
     max_dataset_size: 150
-    hit_point_buffer_size: 64
+    hit_point_buffer_size: 128
     ray_buffer_size: 1024
-    surface_grid_size: 7
-    surface_log_odds: 0.0
+    surface_grid_size: 10
+    surface_log_odds: 5.0
+    surface_log_odds_lr: 0.8
     surface_log_odds_init_count: 1
     surface_log_odds_min: -5.0
     surface_log_odds_max: 20.0
     faster_prediction: true
 ray_selector:
-    azimuth_min: -0.55
-    azimuth_max: 0.55
-    elevation_min: -0.43
-    elevation_max: 0.43
-    num_azimuth_angles: 640
+    azimuth_min: -0.79
+    azimuth_max: 0.79
+    elevation_min: -0.52
+    elevation_max: 0.52
+    num_azimuth_angles: 848
     num_elevation_angles: 480
-    transform:
-        - [1, 0, 0, 0]
-        - [0, 1, 0, 0]
-        - [0, 0, 1, 0]
+    transform: # transform from optical frame to camera frame
+        - [ 0, 0, 1, 0 ]
+        - [ -1, 0, 0, 0 ]
+        - [ 0, -1, 0, 0 ]
 tree:
-    resolution: 0.1 # 0.15 # 0.1
-    tree_depth: 16
+    resolution: 0.05
+    tree_depth: 10
     log_odd_min: -10
-    log_odd_max: 10
-    log_odd_hit: 0.7
-    log_odd_miss: -0.5
+    log_odd_max: 100
+    log_odd_hit: 0.9
+    log_odd_miss: -0.01
     log_odd_occ_threshold: 0
     use_change_detection: false
     use_aabb_limit: false
@@ -64,21 +66,13 @@ update_map:
     surface_bad_abs_logodd: 200
     surface_step_size: 0.001
     auto_surface_log_odds: true
-    max_num_bhm: 1000
-    max_num_points: 50000
-    max_adjust_tries: 1
+    max_num_bhm: 1500
     max_num_voxels: 8000
     var_scale: 0.01
     var_max: 1.5
-scaling: 1.0
-bhm_depth: 15
-weight_sync: true
-sync_method: "copy" # copy, mean, or bayesian
+bhm_depth: 9
 hinged_grid_size: 7
-bhm_overlap: 0.15
-bhm_overlap_sync: 1
 build_bhm_on_hit: true
-bhm_test_margin: 0.07 # 0.045 # 0.07 # 0.3 # 0.7
+bhm_test_margin: 0.0225
 unknown_log_odds: -100.0 # unknown space log-odds
-test_knn: 1
-test_batch_size: 1000
+sync_method: "mean" # copy, mean, or bayesian

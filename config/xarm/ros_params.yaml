@@ -1,0 +1,117 @@
+/**/sdf_mapping_node:
+    ros__parameters:
+        map_dim: 3
+        double_precision: false
+        surface_mapping_setting_type: erl::gp_sdf::BayesianHilbertSurfaceMapping<float, 3>::Setting
+        surface_mapping_setting_file: config/template/bayesian_hilbert_mapping_3d_float.yaml
+        surface_mapping_type: erl::gp_sdf::BayesianHilbertSurfaceMapping<float, 3>
+        sdf_mapping_setting_file: config/template/sdf_mapping_3d_float.yaml
+        odom:
+            enabled: false
+            topic:
+                path: ""
+            msg_type: odometry
+            queue_size: 200
+        world_frame: xarm_device
+        sensor_frame: wrist_camera_depth_optical_frame
+        scan:
+            topic:
+                path: /camera/wrist_camera/depth/color/points
+            type: point_cloud
+            frame_type: erl::geometry::DepthFrame3D<float>  # not used by BHSM when type is point_cloud
+            frame_setting_file: depth_frame.yaml            # not used by BHSM when type is point_cloud
+            stride: 1
+            convert_to_points: true
+            in_local_frame: true
+            depth_scale: 0.001
+        paint_surface:
+            color_from_scan: false   # set to true to use the color from the point cloud, false to use a separate color topic
+            # The following parameters are not used when color_from_scan is true.
+            topic:
+                path: "/camera/wrist_camera/color/image_raw"
+            topic_type: "image"
+            overwrite: true
+            max_distance: 2.0
+            # Intrinsics for camera_color_optical_frame (Realsense color stream, 640x480).
+            camera_intrinsic:
+                image_width: 1280
+                image_height: 720
+                camera_fx: 645.55
+                camera_fy: 644.63
+                camera_cx: 639.80
+                camera_cy: 358.16
+        publish_tree:
+            enabled: true
+            binary: true
+            frequency: 1.0
+            topic:
+                path: occ_tree
+        publish_surface_points:
+            enabled: false
+            frequency: 1.0
+            topic:
+                path: surface_points
+        publish_mesh:
+            enabled: true
+            frequency: 0.5
+            topic:
+                path: mesh_by_sdf
+                qos_durability: transient_local
+                qos_history: keep_last
+        publish_occupancy_grid:  # height map based occupancy grid
+            enabled: false
+            frequency: 1.0
+            topic:
+                path: occupancy_grid
+            height_map_projector:
+                target_resolution: 0.05
+                robot_height: 0.6
+                max_step_height: 0.2
+                ground_z_min: -1.5
+                ground_z_max: 2.0
+                min_normal_z: 0.2
+                sensor_z_change_threshold: 1.0
+                use_bounding_box: false
+                bounding_box:
+                    center: [0.0, 0.0]
+                    half_sizes: [0.0, 0.0]
+        update_time_topic:
+            path: update_time
+        query_time_topic:
+            path: query_time
+        sdf_query_service:
+            path: sdf_query
+        occ_query_service:
+            path: occ_query
+        save_map_service:
+            path: save_map
+        load_map_service:
+            path: load_map
+        save_mesh_service:
+            path: save_mesh
+        log_level: warn
+
+/**/sdf_visualization_node:
+    ros__parameters:
+        resolution: 0.01
+        x_cells: 81
+        y_cells: 101
+        x: 0.4
+        y: 0.0
+        z: 0.08
+        publish_gradient: false
+        publish_sdf_variance: false
+        publish_gradient_variance: false
+        publish_covariance: false
+        publish_grid_map: true
+        publish_point_cloud: true
+        publish_rate: 1.0
+        attached_to_frame: false
+        world_frame: xarm_device
+        attached_frame: wrist_camera_link
+        sdf_query_service:
+            path: sdf_query
+        map_topic:
+            path: sdf_grid_map
+        point_cloud_topic:
+            path: sdf_point_cloud

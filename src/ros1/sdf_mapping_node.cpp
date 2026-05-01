@@ -644,7 +644,6 @@ public:
             m_odom_queue_.reserve(m_setting_.odom.queue_size);
         }
 
-        bool are_points = false;
         switch (m_setting_.scan.type) {
             case ScanType::Laser:
                 ROS_INFO("Subscribing to %s as laser scan", m_setting_.scan.topic.c_str());
@@ -656,7 +655,6 @@ public:
                 break;
             case ScanType::PointCloud:
                 ROS_INFO("Subscribing to %s as point cloud", m_setting_.scan.topic.c_str());
-                are_points = true;
                 m_sub_scan_ = m_nh_.subscribe(
                     m_setting_.scan.topic,
                     10,
@@ -716,7 +714,7 @@ public:
             }
         }
 
-        if (!are_points && m_setting_.scan.convert_to_points) {
+        if (m_setting_.scan.type != ScanType::PointCloud && m_setting_.scan.convert_to_points) {
             if (Dim == 2) {
                 auto frame_setting = std::make_shared<typename LidarFrame2D::Setting>();
                 try {
@@ -1631,23 +1629,20 @@ private:
             return;
         }
 
-        bool are_points = false;
         MatrixX scan;
         switch (m_setting_.scan.type) {
             case ScanType::Laser:
                 if (!GetScanFromLaserScan(scan)) { return; }
-                are_points = false;
                 break;
             case ScanType::PointCloud:
                 if (!GetScanFromPointCloud2(scan)) { return; }
-                are_points = true;
                 break;
             case ScanType::Depth:
                 if (!GetScanFromDepthImage(scan)) { return; }
-                are_points = false;
                 break;
         }
         const bool in_local = m_setting_.scan.in_local_frame;
+        bool are_points = m_setting_.scan.type == ScanType::PointCloud;  // point cloud scans are already points
         if (!are_points && m_setting_.scan.convert_to_points) {
             if (Dim == 2) {
                 const std::vector<Vector2> &ray_directions =

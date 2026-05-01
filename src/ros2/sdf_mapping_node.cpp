@@ -342,7 +342,7 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
             RCLCPP_WARN(logger, "scan.stride must be positive");
             return false;
         }
-        if (scan.convert_to_points) {
+        if (scan.type != ScanType::PointCloud && scan.convert_to_points) {
             if (scan.frame_setting_file.empty()) {
                 RCLCPP_WARN(logger, "For scan conversion, scan.frame_setting_file must be set.");
                 return false;
@@ -690,7 +690,6 @@ public:
             m_odom_queue_.reserve(m_setting_.odom.queue_size);
         }
 
-        bool are_points = false;
         switch (m_setting_.scan.type) {
             case ScanType::Laser:
                 RCLCPP_INFO(
@@ -707,7 +706,6 @@ public:
                     logger,
                     "Subscribing to %s as point cloud",
                     m_setting_.scan.topic.path.c_str());
-                are_points = true;
                 m_sub_point_cloud_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
                     m_setting_.scan.topic.path,
                     m_setting_.scan.topic.GetQoS(),
@@ -777,7 +775,7 @@ public:
             }
         }
 
-        if (!are_points && m_setting_.scan.convert_to_points) {
+        if (m_setting_.scan.type != ScanType::PointCloud && m_setting_.scan.convert_to_points) {
             if (Dim == 2) {
                 auto frame_setting = std::make_shared<typename LidarFrame2D::Setting>();
                 try {
@@ -1806,23 +1804,20 @@ private:
             return;
         }
 
-        bool are_points = false;
         MatrixX scan;
         switch (m_setting_.scan.type) {
             case ScanType::Laser:
                 if (!GetScanFromLaserScan(scan)) { return; }
-                are_points = false;
                 break;
             case ScanType::PointCloud:
                 if (!GetScanFromPointCloud2(scan)) { return; }
-                are_points = true;
                 break;
             case ScanType::Depth:
                 if (!GetScanFromDepthImage(scan)) { return; }
-                are_points = false;
                 break;
         }
         const bool in_local = m_setting_.scan.in_local_frame;
+        bool are_points = m_setting_.scan.type == ScanType::PointCloud;  // point cloud scans are already points
         if (!are_points && m_setting_.scan.convert_to_points) {
             if (Dim == 2) {
                 const std::vector<Vector2> &ray_directions =

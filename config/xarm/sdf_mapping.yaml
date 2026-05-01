@@ -1,0 +1,21 @@
+__base__: ../common/sdf_mapping_float.yaml
+test_query:
+    default_invalid_sdf: -1
+    max_test_valid_distance_var: 0.02
+    search_area_half_size: 4
+    num_neighbor_gps: 8
+    max_num_retrain_gps: 200 # max number of retrained GPs before a test query
+    use_global_buffer: true  # whether to use the global buffer for test queries
+num_threads: 16
+update_hz: 15
+sensor_noise: 0.01
+gp_sdf_area_scale: 4 # should not be too small
+sdf_gp:
+    sign_method: "external"
+    edf_gp:
+        kernel_type: erl::covariance::RadialBiasFunction<float, 3>
+        kernel_setting_type: erl::covariance::Covariance<float>::Setting
+        kernel:
+            x_dim: 3
+        log_lambda: 40
+        max_num_samples: 192 # max dataset size
