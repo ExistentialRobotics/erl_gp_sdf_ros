@@ -1,0 +1,72 @@
+<launch>
+    <!-- whether to launch the sdf visualization node -->
+    <arg name="visualize_sdf" default="true" />
+    <!-- whether to launch rviz for visualization -->
+    <arg name="open_rviz" default="true" />
+
+    <node pkg="erl_gp_sdf_ros" type="sdf_mapping_node" name="sdf_mapping_node" output="screen">
+        <rosparam command="load" file="$(find erl_gp_sdf_ros)/config/ros1/bayesian_hilbert_float_3d.yaml" />
+        <param name="map_dim" value="3" />
+        <param name="double_precision" value="false" />
+        <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/xarm/surf_mapping.yaml" />
+        <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/xarm/sdf_mapping.yaml" />
+        <param name="odom/enabled" value="false" />
+        <param name="world_frame" value="xarm_device" />
+        <param name="sensor_frame" value="wrist_camera_depth_optical_frame" />
+        <param name="scan/topic" value="/camera/wrist_camera/depth/color/points" />
+        <param name="scan/type" value="point_cloud" />
+        <param name="scan/stride" value="1" />
+        <param name="scan/convert_to_points" value="true" />
+        <param name="scan/in_local_frame" value="true" />
+        <param name="scan/depth_scale" value="0.001" />
+        <param name="paint_surface/color_from_scan" value="false" />
+        <param name="paint_surface/topic" value="/camera/wrist_camera/color/image_raw" />
+        <param name="paint_surface/topic_type" value="image" />
+        <param name="paint_surface/overwrite" value="true" />
+        <param name="paint_surface/max_distance" value="2.0" />
+        <param name="paint_surface/camera_intrinsic/image_width" value="1280" />
+        <param name="paint_surface/camera_intrinsic/image_height" value="720" />
+        <param name="paint_surface/camera_intrinsic/camera_fx" value="645.55" />
+        <param name="paint_surface/camera_intrinsic/camera_fy" value="644.63" />
+        <param name="paint_surface/camera_intrinsic/camera_cx" value="639.80" />
+        <param name="paint_surface/camera_intrinsic/camera_cy" value="358.16" />
+        <param name="publish_tree/enabled" value="true" />
+        <param name="publish_tree/binary" value="true" />
+        <param name="publish_tree/frequency" value="1.0" />
+        <param name="publish_tree/topic" value="occ_tree" />
+        <param name="publish_surface_points/enabled" value="false" />
+        <param name="publish_mesh/enabled" value="true" />
+        <param name="publish_mesh/frequency" value="0.5" />
+        <param name="publish_mesh/topic" value="mesh_by_sdf" />
+        <param name="publish_occupancy_grid/enabled" value="false" />
+        <param name="log_level" value="warn" />
+    </node>
+
+    <group if="$(arg visualize_sdf)">
+        <node pkg="erl_gp_sdf_ros" type="sdf_visualization_node" name="sdf_visualization_node" output="screen">
+            <param name="resolution" value="0.01" />
+            <param name="x_cells" value="81" />
+            <param name="y_cells" value="101" />
+            <param name="x" value="0.4" />
+            <param name="y" value="0.0" />
+            <param name="z" value="0.08" />
+            <param name="publish_gradient" value="false" />
+            <param name="publish_sdf_variance" value="false" />
+            <param name="publish_gradient_variance" value="false" />
+            <param name="publish_covariance" value="false" />
+            <param name="publish_grid_map" value="true" />
+            <param name="publish_point_cloud" value="true" />
+            <param name="publish_rate" value="1.0" />
+            <param name="attached_to_frame" value="false" />
+            <param name="world_frame" value="xarm_device" />
+            <param name="attached_frame" value="wrist_camera_link" />
+            <param name="sdf_query_service" value="/sdf_mapping_node/sdf_query" />
+            <param name="map_topic" value="sdf_grid_map" />
+            <param name="point_cloud_topic" value="sdf_point_cloud" />
+        </node>
+    </group>
+
+    <group if="$(arg open_rviz)">
+        <node pkg="rviz" type="rviz" name="rviz" args="-d $(find erl_gp_sdf_ros)/rviz/xarm.rviz" />
+    </group>
+</launch>

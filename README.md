@@ -257,13 +257,28 @@ ros2 launch erl_gp_sdf_ros zed_camera_launch.py
 
 This demo demonstrates SDF mapping using depth data from a ZED stereo camera.
 
+#### 5. xArm Robot Demo
+
+![](assets/demo_xarm_camera.png)
+
+Launch the xArm robot demonstration:
+
+```bash
+
+# ROS1
+roslaunch erl_gp_sdf_ros xarm.launch
+# ROS2
+ros2 launch erl_gp_sdf_ros xarm.launch.py
+```
+
 ## RViz Configurations
 
 Pre-configured RViz files are available in the `rviz/` directory for ROS1 or `rviz2/` for ROS2:
 - `gazebo_room_2d.rviz`: Configuration for 2D simulation
 - `cow_and_lady.rviz`: Configuration for Cow and Lady dataset
 - `jackal_3d_lidar.rviz`: Configuration for 3D LiDAR visualization
-- `zed_camera.rviz`: Configuration for camera-based mapping
+- `zed.rviz`: Configuration for camera-based mapping
+- `xarm.rviz`: Configuration for xArm robot mapping
 
 ## Docker Usage
 
