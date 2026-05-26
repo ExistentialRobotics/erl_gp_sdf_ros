@@ -517,7 +517,7 @@ public:
     }
 
     ~CapnpRpcRunner() {
-        if (m_executor_.get() != nullptr) {
+        if (m_executor_ != nullptr) {
             kj::PromiseFulfiller<void> *fulfiller = m_shutdown_fulfiller_.get();
             try {
                 m_executor_->executeSync([fulfiller]() {
@@ -548,10 +548,9 @@ private:
             auto pf = kj::newPromiseAndFulfiller<void>();
             {
                 std::lock_guard<std::mutex> lock(m_state_mutex_);
-                m_executor_ = kj::getCurrentThreadExecutor().addRef();
+                m_executor_ = &kj::getCurrentThreadExecutor();
                 m_shutdown_fulfiller_ = kj::mv(pf.fulfiller);
             }
-
             auto parsed_addr = io.provider->getNetwork()
                                    .parseAddress(address, port)
                                    .wait(io.waitScope);
@@ -592,7 +591,7 @@ private:
     }
 
     std::thread m_thread_;
-    kj::Own<const kj::Executor> m_executor_;
+    const kj::Executor *m_executor_ = nullptr;
     kj::Own<kj::PromiseFulfiller<void>> m_shutdown_fulfiller_;
     std::mutex m_state_mutex_;
     std::condition_variable m_state_cv_;
