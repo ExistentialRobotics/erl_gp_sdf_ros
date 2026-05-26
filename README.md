@@ -119,6 +119,25 @@ Performs real-time SDF mapping using Gaussian Process regression. The node subsc
 - `sdf_query` (erl_gp_sdf_msgs/SdfQuery): Query SDF values, gradients, and uncertainties at specified points
 - `save_map` (erl_gp_sdf_msgs/SaveMap): Save the current SDF map to file
 
+**Cap'n Proto RPC interface (optional):**
+
+When `capnp_rpc.enabled` is set to `true` in the YAML config, the node also
+hosts a [Cap'n Proto](https://capnproto.org/) RPC server on
+`capnp_rpc.address:capnp_rpc.port` (default `0.0.0.0:51111`) that mirrors the
+`sdf_query` and `occ_query` ROS2 services, so non-ROS clients (e.g. plain
+Python processes via [`pycapnp`](https://capnproto.github.io/pycapnp/)) can
+query the live SDF / occupancy state without depending on the ROS stack.
+
+The schema is installed at
+`share/erl_gp_sdf_ros/capnp/sdf_query.capnp` and a reference Python client
+ships in `scripts/sdf_capnp_client.py`. Example:
+
+```bash
+pip install pycapnp
+python3 scripts/sdf_capnp_client.py --host 127.0.0.1 --port 51111 \
+    --points "0,0,0; 0.5,0.0,0.1"
+```
+
 **Key Parameters:**
 
 *Core Configuration:*

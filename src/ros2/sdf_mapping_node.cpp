@@ -19,7 +19,17 @@
 #include "erl_gp_sdf_msgs/srv/save_map.hpp"
 #include "erl_gp_sdf_msgs/srv/sdf_query.hpp"
 
+#include "capnp/sdf_query.capnp.h"
+
+#include <capnp/message.h>
+#include <capnp/rpc-twoparty.h>
+#include <condition_variable>
 #include <geometry_msgs/msg/vector3.hpp>
+#include <kj/async-io.h>
+#include <kj/async.h>
+#include <kj/common.h>
+#include <kj/debug.h>
+#include <mutex>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <open3d/geometry/LineSet.h>
@@ -199,6 +209,22 @@ struct PublishMeshParams : Yamlable<PublishMeshParams> {
         ERL_REFLECT_MEMBER(PublishMeshParams, topic));
 };
 
+struct CapnpRpcParams : Yamlable<CapnpRpcParams> {
+    // if true, run a Cap'n Proto RPC server alongside the ROS services to expose
+    // SDF/occupancy queries to non-ROS clients (e.g. Python via pycapnp).
+    bool enabled = false;
+    // bind address; "0.0.0.0" listens on all interfaces, "127.0.0.1" loopback only.
+    std::string address = "0.0.0.0";
+    // bind port for the RPC server.
+    int64_t port = 51111;
+
+    ERL_REFLECT_SCHEMA(
+        CapnpRpcParams,
+        ERL_REFLECT_MEMBER(CapnpRpcParams, enabled),
+        ERL_REFLECT_MEMBER(CapnpRpcParams, address),
+        ERL_REFLECT_MEMBER(CapnpRpcParams, port));
+};
+
 struct PublishOccupancyGridParams : Yamlable<PublishOccupancyGridParams> {
     // if true, publish the 2D occupancy grid projected from the 3D height map (Dim==3 only).
     bool enabled = false;
@@ -260,6 +286,8 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     Ros2TopicParams load_map_service{"load_map", "services"};
     // parameters of the service to save the mesh
     Ros2TopicParams save_mesh_service{"save_mesh", "services"};
+    // parameters for the Cap'n Proto RPC query server.
+    CapnpRpcParams capnp_rpc;
 
     ERL_REFLECT_SCHEMA(
         SdfMappingNodeConfig,
@@ -282,7 +310,8 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, occ_query_service),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_map_service),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, load_map_service),
-        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_mesh_service));
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_mesh_service),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, capnp_rpc));
 
     bool
     PostDeserialization() override {
@@ -433,6 +462,19 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
                 return false;
             }
         }
+        if (capnp_rpc.enabled) {
+            if (capnp_rpc.address.empty()) {
+                RCLCPP_WARN(logger, "capnp_rpc.address is empty");
+                return false;
+            }
+            if (capnp_rpc.port <= 0 || capnp_rpc.port > 65535) {
+                RCLCPP_WARN(
+                    logger,
+                    "capnp_rpc.port must be in [1, 65535], got %ld",
+                    capnp_rpc.port);
+                return false;
+            }
+        }
         if (paint_surface.color_from_scan && scan.type != ScanType::PointCloud) {
             RCLCPP_WARN(
                 logger,
@@ -442,6 +484,122 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
         }
         return true;
     }
+};
+
+// Runs a Cap'n Proto TwoPartyServer on a dedicated thread. The mapper impl is
+// constructed on that thread via the factory, and the server listens until the
+// runner is destroyed. Destruction sends a fulfiller across the kj event loop
+// to break out of the listen wait, then joins the thread.
+class CapnpRpcRunner {
+public:
+    using ServerFactory = std::function<kj::Own<SdfMapper::Server>()>;
+
+    CapnpRpcRunner(
+        ServerFactory factory,
+        std::string address,
+        uint16_t port,
+        rclcpp::Logger logger)
+        : m_logger_(logger) {
+        m_thread_ = std::thread(
+            [this, factory = std::move(factory), addr = std::move(address), port]() mutable {
+                RunLoop(std::move(factory), addr, port);
+            });
+        // Block the caller until the listener is bound (or the thread fails),
+        // so config errors surface synchronously during node construction.
+        std::unique_lock<std::mutex> lock(m_state_mutex_);
+        m_state_cv_.wait(lock, [this] { return m_started_ || m_failed_; });
+        if (m_failed_) {
+            lock.unlock();
+            if (m_thread_.joinable()) { m_thread_.join(); }
+            throw std::runtime_error(
+                "Cap'n Proto RPC server failed to start: " + m_error_);
+        }
+    }
+
+    ~CapnpRpcRunner() {
+        if (m_executor_.get() != nullptr) {
+            kj::PromiseFulfiller<void> *fulfiller = m_shutdown_fulfiller_.get();
+            try {
+                m_executor_->executeSync([fulfiller]() {
+                    if (fulfiller != nullptr && fulfiller->isWaiting()) {
+                        fulfiller->fulfill();
+                    }
+                });
+            } catch (const std::exception &e) {
+                RCLCPP_WARN(m_logger_, "Cap'n Proto RPC shutdown failed: %s", e.what());
+            } catch (const kj::Exception &e) {
+                RCLCPP_WARN(
+                    m_logger_,
+                    "Cap'n Proto RPC shutdown failed: %s",
+                    e.getDescription().cStr());
+            }
+        }
+        if (m_thread_.joinable()) { m_thread_.join(); }
+    }
+
+    CapnpRpcRunner(const CapnpRpcRunner &) = delete;
+    CapnpRpcRunner &operator=(const CapnpRpcRunner &) = delete;
+
+private:
+    void
+    RunLoop(ServerFactory factory, const std::string &address, uint16_t port) {
+        try {
+            auto io = kj::setupAsyncIo();
+            auto pf = kj::newPromiseAndFulfiller<void>();
+            {
+                std::lock_guard<std::mutex> lock(m_state_mutex_);
+                m_executor_ = kj::getCurrentThreadExecutor().addRef();
+                m_shutdown_fulfiller_ = kj::mv(pf.fulfiller);
+            }
+
+            auto parsed_addr = io.provider->getNetwork()
+                                   .parseAddress(address, port)
+                                   .wait(io.waitScope);
+            auto listener = parsed_addr->listen();
+            RCLCPP_INFO(
+                m_logger_,
+                "Cap'n Proto RPC server listening on %s:%u",
+                address.c_str(),
+                static_cast<unsigned>(listener->getPort()));
+
+            capnp::TwoPartyServer server(factory());
+            auto listen_promise = server.listen(*listener);
+
+            {
+                std::lock_guard<std::mutex> lock(m_state_mutex_);
+                m_started_ = true;
+            }
+            m_state_cv_.notify_all();
+
+            listen_promise.exclusiveJoin(kj::mv(pf.promise)).wait(io.waitScope);
+            RCLCPP_INFO(m_logger_, "Cap'n Proto RPC server stopped");
+        } catch (const kj::Exception &e) {
+            HandleFailure(e.getDescription().cStr());
+        } catch (const std::exception &e) {
+            HandleFailure(e.what());
+        }
+    }
+
+    void
+    HandleFailure(const std::string &what) {
+        {
+            std::lock_guard<std::mutex> lock(m_state_mutex_);
+            m_failed_ = true;
+            m_error_ = what;
+        }
+        m_state_cv_.notify_all();
+        RCLCPP_ERROR(m_logger_, "Cap'n Proto RPC server failed: %s", what.c_str());
+    }
+
+    std::thread m_thread_;
+    kj::Own<const kj::Executor> m_executor_;
+    kj::Own<kj::PromiseFulfiller<void>> m_shutdown_fulfiller_;
+    std::mutex m_state_mutex_;
+    std::condition_variable m_state_cv_;
+    bool m_started_ = false;
+    bool m_failed_ = false;
+    std::string m_error_;
+    rclcpp::Logger m_logger_;
 };
 
 template<typename Dtype, int Dim>
@@ -537,6 +695,43 @@ class SdfMappingNode : public rclcpp::Node {
     // for color storage
     ColorMatrix m_point_colors_;  // 4xN RGBA, populated when paint_surface.color_from_scan is true
     bool m_received_colors_ = false;
+
+    // Serializes write-access (TryUpdate) against read-access from both ROS
+    // service callbacks and the Cap'n Proto RPC thread. ROS callbacks are
+    // already serialized with TryUpdate by the single-threaded executor, but
+    // the Cap'n Proto thread is not, so every path that reads or writes the
+    // mapping state must hold this lock.
+    std::mutex m_mapping_mutex_;
+
+    // Cap'n Proto RPC interface implementation. Forwards method invocations
+    // back to the templated node so the existing query logic can be reused.
+    class SdfMapperImpl final : public SdfMapper::Server {
+    public:
+        explicit SdfMapperImpl(SdfMappingNode *node) : m_node_(node) {}
+
+        kj::Promise<void>
+        querySdf(QuerySdfContext context) override {
+            m_node_->HandleCapnpSdfQuery(
+                context.getParams().getRequest(),
+                context.getResults().initResponse());
+            return kj::READY_NOW;
+        }
+
+        kj::Promise<void>
+        queryOcc(QueryOccContext context) override {
+            m_node_->HandleCapnpOccQuery(
+                context.getParams().getRequest(),
+                context.getResults().initResponse());
+            return kj::READY_NOW;
+        }
+
+    private:
+        SdfMappingNode *m_node_;
+    };
+
+    // Declared last so the destructor tears it down first, ensuring the RPC
+    // thread is joined before any other member it might touch is destroyed.
+    std::unique_ptr<CapnpRpcRunner> m_capnp_runner_;
 
 public:
     SdfMappingNode()
@@ -1074,7 +1269,34 @@ public:
         m_msg_update_time_.data = 0.0;
         m_msg_query_time_.data = 0.0;
 
+        if (m_setting_.capnp_rpc.enabled) {
+            try {
+                CapnpRpcRunner::ServerFactory factory = [this]() -> kj::Own<SdfMapper::Server> {
+                    return kj::heap<SdfMapperImpl>(this);
+                };
+                m_capnp_runner_ = std::make_unique<CapnpRpcRunner>(
+                    std::move(factory),
+                    m_setting_.capnp_rpc.address,
+                    static_cast<uint16_t>(m_setting_.capnp_rpc.port),
+                    this->get_logger());
+            } catch (const std::exception &e) {
+                RCLCPP_FATAL(
+                    logger,
+                    "Failed to start Cap'n Proto RPC server: %s",
+                    e.what());
+                rclcpp::shutdown();
+                return;
+            }
+        }
+
         RCLCPP_INFO(logger, "SdfMappingNode is ready. Waiting for scans + queries...");
+    }
+
+    ~SdfMappingNode() override {
+        // Tear the RPC server down first so its thread is joined before any
+        // other member (e.g. the mapping pointers it might still be touching)
+        // begins destruction.
+        m_capnp_runner_.reset();
     }
 
 private:
@@ -1859,6 +2081,9 @@ private:
         auto t1 = this->get_clock()->now();
         double surf_mapping_time;
         bool success;
+        // Block Cap'n Proto query handlers (and any other concurrent reader)
+        // while the mapping state is being mutated.
+        std::lock_guard<std::mutex> mapping_lock(m_mapping_mutex_);
         {
             ERL_BLOCK_TIMER_MSG_TIME("Surface mapping update", surf_mapping_time);
             success = m_surface_mapping_->Update(rotation, translation, scan, are_points, in_local);
@@ -1922,7 +2147,16 @@ private:
         variances.setConstant(1.0e6);
 
         auto t1 = this->get_clock()->now();
-        bool ok = m_sdf_mapping_->Test(positions, distances, gradients, variances, covariances);
+        bool ok;
+        {
+            std::lock_guard<std::mutex> mapping_lock(m_mapping_mutex_);
+            ok = m_sdf_mapping_->Test(
+                positions,
+                distances,
+                gradients,
+                variances,
+                covariances);
+        }
         auto t2 = this->get_clock()->now();
         m_msg_query_time_.data = (t2 - t1).seconds();
         RCLCPP_INFO(this->get_logger(), "SDF query took %f seconds", m_msg_query_time_.data);
@@ -2085,6 +2319,8 @@ private:
 
         res->dim = Dim;
 
+        std::lock_guard<std::mutex> mapping_lock(m_mapping_mutex_);
+
         // Try BayesianHilbertSurfaceMapping
         if (m_bhm_) {
             FillBhmSdfQueryResponse(m_bhm_, positions, n, mode, compute_gradient, res);
@@ -2140,6 +2376,232 @@ private:
 
         res->success = false;
         res->reason = "no occupancy mapping frontend available";
+    }
+
+    // --- Cap'n Proto RPC handlers. Mirror CallbackSdfQuery / CallbackOccQuery
+    //     but read from / write to capnp messages, and run on the dedicated
+    //     RPC thread (so they take m_mapping_mutex_ themselves).
+
+    void
+    HandleCapnpSdfQuery(
+        ::SdfQueryRequest::Reader request,
+        ::SdfQueryResponse::Builder response) {
+        response.setSuccess(false);
+        response.setDim(static_cast<uint8_t>(Dim));
+
+        if (!m_sdf_mapping_) {
+            RCLCPP_WARN(this->get_logger(), "SDF mapping is not initialized");
+            return;
+        }
+
+        using QuerySetting = typename GpSdfMapping::Setting::TestQuery;
+
+        auto points_reader = request.getQueryPoints();
+        const int n = static_cast<int>(points_reader.size());
+        MatrixDX positions(Dim, n);
+        for (int i = 0; i < n; ++i) {
+            const auto p = points_reader[i];
+            positions(0, i) = static_cast<Dtype>(p.getX());
+            positions(1, i) = static_cast<Dtype>(p.getY());
+            if constexpr (Dim == 3) {
+                positions(2, i) = static_cast<Dtype>(p.getZ());
+            }
+        }
+
+        VectorX distances(n);
+        MatrixDX gradients(Dim, n);
+        Variances variances(Dim + 1, n);
+        Covariances covariances(Dim * (Dim + 1) / 2, n);
+        distances.setConstant(0.0);
+        gradients.setConstant(0.0);
+        variances.setConstant(1.0e6);
+
+        bool ok;
+        auto t1 = this->get_clock()->now();
+        {
+            std::lock_guard<std::mutex> mapping_lock(m_mapping_mutex_);
+            ok = m_sdf_mapping_->Test(
+                positions,
+                distances,
+                gradients,
+                variances,
+                covariances);
+        }
+        auto t2 = this->get_clock()->now();
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Cap'n Proto SDF query took %f seconds",
+            (t2 - t1).seconds());
+
+        response.setSuccess(ok);
+        if (!ok) {
+            RCLCPP_WARN(this->get_logger(), "Failed to process Cap'n Proto SDF query");
+            return;
+        }
+
+        const QuerySetting &qs = m_sdf_mapping_cfg_->test_query;
+        response.setComputeGradient(qs.compute_gradient);
+        response.setComputeGradientVariance(qs.compute_gradient_variance);
+        response.setComputeCovariance(qs.compute_covariance);
+
+        auto d_list = response.initSignedDistances(n);
+        for (int i = 0; i < n; ++i) {
+            d_list.set(i, static_cast<double>(distances(i)));
+        }
+
+        if (qs.compute_gradient) {
+            auto g_list = response.initGradients(n);
+            for (int i = 0; i < n; ++i) {
+                auto g = g_list[i];
+                g.setX(static_cast<double>(gradients(0, i)));
+                g.setY(static_cast<double>(gradients(1, i)));
+                if constexpr (Dim == 3) {
+                    g.setZ(static_cast<double>(gradients(2, i)));
+                } else {
+                    g.setZ(0.0);
+                }
+            }
+        }
+
+        if (qs.compute_gradient_variance) {
+            const long total = static_cast<long>(n) * (Dim + 1);
+            auto v_list = response.initVariances(static_cast<unsigned int>(total));
+            for (long k = 0; k < total; ++k) {
+                v_list.set(k, static_cast<double>(variances.data()[k]));
+            }
+        } else {
+            auto v_list = response.initVariances(n);
+            for (int i = 0; i < n; ++i) {
+                v_list.set(i, static_cast<double>(variances(0, i)));
+            }
+        }
+
+        if (qs.compute_covariance) {
+            const long total =
+                static_cast<long>(n) * Dim * (Dim + 1) / 2;
+            auto c_list = response.initCovariances(static_cast<unsigned int>(total));
+            for (long k = 0; k < total; ++k) {
+                c_list.set(k, static_cast<double>(covariances.data()[k]));
+            }
+        }
+    }
+
+    template<typename BhmType>
+    void
+    FillBhmCapnpOccResponse(
+        const std::shared_ptr<BhmType> &bhm,
+        const MatrixDX &positions,
+        int n,
+        const std::string &mode,
+        bool compute_gradient,
+        ::OccQueryResponse::Builder &response) {
+        VectorX prob_occupied(n);
+        MatrixDX gradients(Dim, n);
+
+        bhm->Predict(
+            positions,
+            /*logodd=*/(mode == "logodd"),
+            /*compute_gradient=*/compute_gradient,
+            /*gradient_with_sigmoid=*/false,
+            /*parallel=*/true,
+            prob_occupied,
+            gradients);
+
+        auto r_list = response.initResults(n);
+        for (int i = 0; i < n; ++i) {
+            r_list.set(i, static_cast<double>(prob_occupied[i]));
+        }
+
+        if (compute_gradient) {
+            auto g_list = response.initGradients(n);
+            for (int i = 0; i < n; ++i) {
+                auto g = g_list[i];
+                g.setX(static_cast<double>(gradients(0, i)));
+                g.setY(static_cast<double>(gradients(1, i)));
+                if constexpr (Dim == 3) {
+                    g.setZ(static_cast<double>(gradients(2, i)));
+                } else {
+                    g.setZ(0.0);
+                }
+            }
+        }
+
+        response.setSuccess(true);
+    }
+
+    void
+    HandleCapnpOccQuery(
+        ::OccQueryRequest::Reader request,
+        ::OccQueryResponse::Builder response) {
+        response.setSuccess(false);
+        response.setDim(static_cast<uint8_t>(Dim));
+
+        auto points_reader = request.getQueryPoints();
+        const int n = static_cast<int>(points_reader.size());
+        const std::string mode = request.getMode().cStr();
+        const bool compute_gradient = request.getComputeGradient();
+
+        if (mode != "logodd" && mode != "prob") {
+            response.setReason(
+                ("invalid mode '" + mode + "', expected 'logodd' or 'prob'").c_str());
+            return;
+        }
+
+        MatrixDX positions(Dim, n);
+        for (int i = 0; i < n; ++i) {
+            const auto p = points_reader[i];
+            positions(0, i) = static_cast<Dtype>(p.getX());
+            positions(1, i) = static_cast<Dtype>(p.getY());
+            if constexpr (Dim == 3) {
+                positions(2, i) = static_cast<Dtype>(p.getZ());
+            }
+        }
+
+        std::lock_guard<std::mutex> mapping_lock(m_mapping_mutex_);
+
+        if (m_bhm_) {
+            FillBhmCapnpOccResponse(m_bhm_, positions, n, mode, compute_gradient, response);
+            return;
+        }
+
+        auto gp_occ = std::dynamic_pointer_cast<GpOccSurfaceMapping>(m_surface_mapping_);
+        if (gp_occ) {
+            if (compute_gradient) {
+                response.setReason(
+                    "compute_gradient is not supported for GpOccSurfaceMapping");
+                return;
+            }
+            auto tree = gp_occ->GetTree();
+            if (!tree) {
+                response.setReason("GpOccSurfaceMapping has no occupancy tree");
+                return;
+            }
+
+            auto r_list = response.initResults(n);
+            const bool is_logodd = (mode == "logodd");
+            for (int i = 0; i < n; ++i) {
+                const auto *node = [&]() {
+                    if constexpr (Dim == 2) {
+                        return tree->Search(positions(0, i), positions(1, i));
+                    } else {
+                        return tree->Search(positions(0, i), positions(1, i), positions(2, i));
+                    }
+                }();
+                double val;
+                if (node == nullptr) {
+                    val = is_logodd ? 0.0 : 0.5;
+                } else {
+                    val = is_logodd
+                              ? static_cast<double>(node->GetLogOdds())
+                              : static_cast<double>(node->GetOccupancy());
+                }
+                r_list.set(i, val);
+            }
+            response.setSuccess(true);
+            return;
+        }
+
+        response.setReason("no occupancy mapping frontend available");
     }
 
     void

@@ -89,6 +89,10 @@
             path: load_map
         save_mesh_service:
             path: save_mesh
+        capnp_rpc:
+            enabled: true  # exposes the Cap'n Proto query server consumed by pinocchio_ik's distance_cbf_service
+            address: 0.0.0.0
+            port: 51111
         log_level: warn
 
 /**/sdf_visualization_node:

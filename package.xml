@@ -32,6 +32,12 @@
     <depend condition="$ROS_VERSION == 1">rviz</depend>
     <depend condition="$ROS_VERSION == 2">rviz_default_plugins</depend>
 
+    <!-- Cap'n Proto (used by ROS2 sdf_mapping_node to expose a non-ROS
+         query interface). libcapnp-dev provides the C++ headers, libraries,
+         and CMake module; capnproto provides the schema compiler. -->
+    <depend>libcapnp-dev</depend>
+    <depend>capnproto</depend>
+
     <!-- ERL dependencies -->
     <depend>erl_common</depend>
     <depend>erl_covariance</depend>
