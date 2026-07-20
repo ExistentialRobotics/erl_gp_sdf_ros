@@ -24,17 +24,17 @@
             <param name="double_precision" value="$(eval precision == 'double')" />
             <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/zed/gp_occ_surf_mapping_$(arg precision).yaml" />
             <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/zed/gp_occ_sdf_mapping_$(arg precision).yaml" />
-            <param name="use_odom" value="false" />
-            <param name="odom_topic" value="/zed/zed_node/odom" />
-            <param name="odom_msg_type" value="odometry" />
+            <param name="odom/enabled" value="false" />
+            <param name="odom/topic" value="/zed/zed_node/odom" />
+            <param name="odom/msg_type" value="odometry" />
             <param name="sensor_frame" value="zed_left_camera_optical_frame" />
-            <param name="scan_topic" value="/zed/zed_node/depth/depth_registered" />
-            <param name="scan_type" value="depth" />
-            <param name="convert_scan_to_points" value="false" />
-            <param name="scan_frame_setting_file" value="$(find erl_gp_sdf_ros)/config/zed/depth_frame.yaml" />
-            <param name="scan_in_local_frame" value="true" />
-            <param name="depth_scale" value="1.0" />
-            <param name="publish_tree" value="true" />
+            <param name="scan/topic" value="/zed/zed_node/depth/depth_registered" />
+            <param name="scan/type" value="depth" />
+            <param name="scan/convert_to_points" value="false" />
+            <param name="scan/frame_setting_file" value="$(find erl_gp_sdf_ros)/config/zed/depth_frame.yaml" />
+            <param name="scan/in_local_frame" value="true" />
+            <param name="scan/depth_scale" value="1.0" />
+            <param name="publish_tree/enabled" value="true" />
         </node>
     </group>
 
@@ -45,18 +45,18 @@
             <param name="double_precision" value="$(eval precision == 'double')" />
             <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/zed/bayesian_hilbert_surf_mapping_$(arg precision).yaml" />
             <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf_ros)/config/zed/bayesian_hilbert_sdf_mapping_$(arg precision).yaml" />
-            <param name="use_odom" value="false" />
-            <param name="odom_topic" value="/zed/zed_node/odom" />
-            <param name="odom_msg_type" value="odometry" />
+            <param name="odom/enabled" value="false" />
+            <param name="odom/topic" value="/zed/zed_node/odom" />
+            <param name="odom/msg_type" value="odometry" />
             <param name="sensor_frame" value="zed_left_camera_frame" />
-            <param name="scan_topic" value="/zed/zed_node/point_cloud/cloud_registered" />
-            <param name="scan_type" value="point_cloud" />
-            <param name="convert_scan_to_points" value="true" />
-            <param name="scan_frame_setting_file" value="$(find erl_gp_sdf_ros)/config/zed/depth_frame.yaml" />
-            <param name="scan_stride" value="2" />
-            <param name="scan_in_local_frame" value="true" />
-            <param name="depth_scale" value="1.0" />
-            <param name="publish_tree" value="true" />
+            <param name="scan/topic" value="/zed/zed_node/point_cloud/cloud_registered" />
+            <param name="scan/type" value="point_cloud" />
+            <param name="scan/convert_to_points" value="true" />
+            <param name="scan/frame_setting_file" value="$(find erl_gp_sdf_ros)/config/zed/depth_frame.yaml" />
+            <param name="scan/stride" value="2" />
+            <param name="scan/in_local_frame" value="true" />
+            <param name="scan/depth_scale" value="1.0" />
+            <param name="publish_tree/enabled" value="true" />
         </node>
     </group>
 

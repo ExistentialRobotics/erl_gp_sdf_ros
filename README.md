@@ -6,8 +6,8 @@
 [![ROS2](https://img.shields.io/badge/ROS2-humble-blue)](https://docs.ros.org/)
 [![ROS2](https://img.shields.io/badge/ROS2-jazzy-blue)](https://docs.ros.org/)
 
-|                                   |                                          |
-| --------------------------------- | ---------------------------------------- |
+|  |  |
+| --- | --- |
 | ![](assets/demo_cow_and_lady.png) | ![](assets/demo_jackal_3d_lidar_bag.png) |
 
 **A ROS package for Gaussian Process regression on Signed Distance Fields.**
@@ -191,6 +191,49 @@ Provides visualization of SDF maps by querying the SDF mapping service and publi
 
 ## Usage Examples
 
+Each demo is started from a single launch file. The tables below list the launch arguments a user
+typically needs to set. Most defaults are sensible, but the **dataset-path arguments must be overridden**.
+
+Arguments are passed as `arg:=value`, for example:
+
+```bash
+# ROS1
+roslaunch erl_gp_sdf_ros cow_and_lady.launch open_rqt_plot:=false
+# ROS2
+ros2 launch erl_gp_sdf_ros cow_and_lady.launch.py open_rqt_plot:=false
+```
+
+### Common Launch Arguments
+
+Shared by most demos, with identical names in ROS1 and ROS2:
+
+| Argument  | Default  | Description  |
+| --- | --- | --- |
+| `precision`  | `float`  | Floating-point precision: `float` or `double`.  |
+| `surf_mapping_method` | `bayesian_hilbert` | Surface mapping method: `bayesian_hilbert` or `gp_occ`.  |
+| `visualize_sdf`  | `true`  | Launch the SDF visualization node.  |
+| `open_rviz`  | `true`  | Launch RViz with a preconfigured view.  |
+| `open_rqt_plot`  | `true` / `false`  | Launch `rqt_plot` to monitor update/query time (demo-specific). |
+| `play_rosbag`  | demo-specific  | Whether to play the dataset rosbag (dataset demos only).  |
+| `rosbag_play_rate`  | demo-specific  | Rosbag playback rate.  |
+
+### Dataset-Path Arguments (must be provided)
+
+Override the argument below for your setup. Note that the argument **name differs between ROS1
+and ROS2** for some demos:
+
+| Demo  | ROS1 argument(s)  | ROS2 argument(s)  | Points to  |
+| --- | --- | --- | --- |
+| Cow and Lady  | `cow_and_lady_bag`, `gt_point_cloud_file` | `cow_and_lady_bag`, `gt_point_cloud_file` | ROS bag + ground-truth `.ply`  |
+| Jackal 2D LiDAR  | `bag_file`  | `rosbag_dir`  | ROS bag  |
+| Jackal 3D LiDAR  | `bag_file`  | `rosbag_dir`  | ROS bag  |
+| Newer College (ROS1)  | `bag_file`  | —  | ROS bag  |
+| ZED Camera  | `zed_bag_file`  | `zed_bag_dir`  | ROS bag  |
+
+> **Gazebo Room 2D** needs no external data — it generates synthetic scans from `erl_geometry`
+> and runs out of the box. **xArm** expects a live camera/robot publishing the configured
+> topics rather than a rosbag.
+
 ### 1. Gazebo Room 2D Simulation
 
 ![](assets/demo_gazebo_room_2d.png)
@@ -202,10 +245,11 @@ Launch the 2D room simulation with SDF mapping:
 roslaunch erl_gp_sdf_ros gazebo_room_2d.launch
 
 # ROS2
-ros2 launch erl_gp_sdf_ros gazebo_room_2d_launch.py
+ros2 launch erl_gp_sdf_ros gazebo_room_2d.launch.py
 ```
 
-This demonstration shows SDF mapping in a simulated 2D environment with synthetic laser scan data.
+This demonstration shows SDF mapping in a simulated 2D environment with synthetic laser scan
+data. No dataset path is required — it runs out of the box.
 
 ### 2. Cow and Lady Dataset
 
@@ -214,16 +258,20 @@ This demonstration shows SDF mapping in a simulated 2D environment with syntheti
 Launch the Cow and Lady dataset visualization:
 
 ```bash
-# ROS1
-roslaunch erl_gp_sdf_ros cow_and_lady.launch
+# ROS1 (cow_and_lady_bag points to a .bag file)
+roslaunch erl_gp_sdf_ros cow_and_lady.launch \
+    cow_and_lady_bag:=/path/to/cow_and_lady.bag \
+    gt_point_cloud_file:=/path/to/cow_and_lady_gt.ply
 
-# ROS2
-ros2 launch erl_gp_sdf_ros cow_and_lady_launch.py
+# ROS2 (cow_and_lady_bag points to a ROS2 bag directory)
+ros2 launch erl_gp_sdf_ros cow_and_lady.launch.py \
+    cow_and_lady_bag:=/path/to/cow_and_lady_ros2_bag \
+    gt_point_cloud_file:=/path/to/cow_and_lady_gt.ply
 ```
 
-**Note:** Set the following launch file parameters:
-- `cow_and_lady_bag`: Path to the dataset bag file
-- `gt_point_cloud_file`: Path to the ground truth point cloud file
+**Required launch arguments:**
+- `cow_and_lady_bag`: Path to the dataset bag (a `.bag` file for ROS1, a bag directory for ROS2)
+- `gt_point_cloud_file`: Path to the ground-truth point cloud (`.ply`)
 
 ### 3. Jackal 3D LiDAR Demo
 
@@ -232,30 +280,39 @@ ros2 launch erl_gp_sdf_ros cow_and_lady_launch.py
 Launch the 3D LiDAR mapping demonstration:
 
 ```bash
-# ROS1
-roslaunch erl_gp_sdf_ros jackal_3d_lidar.launch
+# ROS1 (bag_file points to a .bag file)
+roslaunch erl_gp_sdf_ros jackal_3d_lidar.launch bag_file:=/path/to/jackal_3d.bag
 
-# ROS2
-ros2 launch erl_gp_sdf_ros jackal_3d_lidar_launch.py
+# ROS2 (rosbag_dir points to a bag directory; play_rosbag defaults to false)
+ros2 launch erl_gp_sdf_ros jackal_3d_lidar.launch.py \
+    rosbag_dir:=/path/to/jackal_3d_ros2_bag play_rosbag:=true
 ```
 
 This demo shows 3D SDF mapping using LiDAR data from a Jackal robot.
 
+**Required launch arguments:**
+- `bag_file` (ROS1) / `rosbag_dir` (ROS2): Path to the recorded LiDAR rosbag
+- `play_rosbag` (ROS2): set to `true` to replay the bag (defaults to `false`)
+
 ### 4. ZED Camera Demo
 
-![](assets/demo_zed_camera.png)
+![](assets/demo_zed_camera2.png)
 
 Launch the ZED stereo camera demonstration:
 
 ```bash
-# ROS1
-roslaunch erl_gp_sdf_ros zed_camera.launch
+# ROS1 (zed_bag_file points to a .bag file)
+roslaunch erl_gp_sdf_ros zed_camera.launch zed_bag_file:=/path/to/zed.bag
 
-# ROS2
-ros2 launch erl_gp_sdf_ros zed_camera_launch.py
+# ROS2 (zed_bag_dir points to a bag directory)
+ros2 launch erl_gp_sdf_ros zed_camera.launch.py zed_bag_dir:=/path/to/zed_ros2_bag
 ```
 
 This demo demonstrates SDF mapping using depth data from a ZED stereo camera.
+
+**Required launch arguments:**
+- `zed_bag_file` (ROS1) / `zed_bag_dir` (ROS2): Path to the recorded ZED rosbag
+- Set `play_rosbag:=false` to run against a live ZED camera instead of a rosbag
 
 #### 5. xArm Robot Demo
 
@@ -264,19 +321,22 @@ This demo demonstrates SDF mapping using depth data from a ZED stereo camera.
 Launch the xArm robot demonstration:
 
 ```bash
-
 # ROS1
 roslaunch erl_gp_sdf_ros xarm.launch
 # ROS2
 ros2 launch erl_gp_sdf_ros xarm.launch.py
 ```
 
+This demo expects a live camera/robot publishing the configured topics (no rosbag argument).
+Common arguments: `visualize_sdf`, `open_rviz` (both ROS1/ROS2), plus `use_sim_time` and
+`log_level` (ROS2).
+
 ## RViz Configurations
 
 Pre-configured RViz files are available in the `rviz/` directory for ROS1 or `rviz2/` for ROS2:
 - `gazebo_room_2d.rviz`: Configuration for 2D simulation
 - `cow_and_lady.rviz`: Configuration for Cow and Lady dataset
-- `jackal_3d_lidar.rviz`: Configuration for 3D LiDAR visualization
+- `jackal2_3d_lidar.rviz`: Configuration for 3D LiDAR visualization
 - `zed.rviz`: Configuration for camera-based mapping
 - `xarm.rviz`: Configuration for xArm robot mapping
 
@@ -291,4 +351,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgements
 
-This work was supported by the Ministry of Trade, Industry and Energy (MOTIE), Korea, under the Strategic Technology Development Program, supervised by the Korea Institute for Advancement of Technology (KIAT) [Grant No. P0026052].
+This work was supported by [ARL DCIST CRA](https://www.dcist-cra.org/) W911NF-17-2-0181, NSF FRR CAREER 2045945, the Ministry of Trade, Industry, and Energy (MOTIE), Korea, under the Strategic Technology Development Program supervised by the Korea Institute for Advancement of Technology (KIAT) [Grant No. P0026052], and the Korea Institute of Planning and Evaluation for Technology in Food, Agriculture, Forestry (IPET) through the Smart Farm Innovation Technology Development Program, funded by the Ministry of Agriculture, Food and Rural Affairs (MAFRA) (RS-2025-02219411).

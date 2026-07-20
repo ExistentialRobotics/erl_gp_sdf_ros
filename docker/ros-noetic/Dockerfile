@@ -11,7 +11,9 @@ RUN cp /etc/apt/sources.list /etc/apt/sources.list.backup &&\
 # ROS Noetic #
 ##############
 RUN DEBIAN_FRONTEND=noninteractive apt update -y
-RUN DEBIAN_FRONTEND=noninteractive apt install -y ubuntu-desktop-minimal \
+# GUI and visualization (lets rviz render from inside the container; was ubuntu-desktop-minimal, a full desktop).
+# libgl1-mesa-glx (GLX/libGL) + libgl1-mesa-dri (DRI drivers, incl. swrast) are both needed for GL rendering.
+RUN DEBIAN_FRONTEND=noninteractive apt install -y mesa-utils libgl1-mesa-glx libgl1-mesa-dri x11-apps \
     software-properties-common lsb-release vim locales apt-utils ca-certificates curl iproute2
 RUN sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list'
 RUN curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | DEBIAN_FRONTEND=noninteractive apt-key add -
@@ -42,21 +44,6 @@ RUN rosdep init && rosdep fix-permissions && rosdep update
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ros-noetic-realsense2-camera \
     ros-noetic-realsense2-description
-# https://github.com/IntelRealSense/librealsense/blob/master/doc/distribution_linux.md
-RUN mkdir -p /etc/apt/keyrings && \
-    curl -sSf https://librealsense.intel.com/Debian/librealsense.pgp | \
-    tee /etc/apt/keyrings/librealsense.pgp > /dev/null
-RUN echo "deb [signed-by=/etc/apt/keyrings/librealsense.pgp] https://librealsense.intel.com/Debian/apt-repo `lsb_release -cs` main" | \
-    tee /etc/apt/sources.list.d/librealsense.list && \
-    apt-get update && DEBIAN_FRONTEND=noninteractive apt install -y \
-    librealsense2-udev-rules \
-    librealsense2 \
-    librealsense2-utils \
-    librealsense2-dev \
-    librealsense2-dbg \
-    librealsense2-gl \
-    librealsense2-gl-dev \
-    librealsense2-gl-dbg
 
 ###############################
 # erl_gp_sdf_ros dependencies #

@@ -123,9 +123,9 @@ def generate_launch_description():
                         "double_precision": precision == "double",
                         "surface_mapping_setting_file": surf_mapping_config,
                         "sdf_mapping_setting_file": sdf_mapping_config,
-                        "scan_topic.path": "scan",
-                        "scan_frame_setting_file": scan_frame_config,
-                        "publish_tree": True,
+                        "scan.topic.path": "scan",
+                        "scan.frame_setting_file": scan_frame_config,
+                        "publish_tree.enabled": True,
                     },
                 ],
             )

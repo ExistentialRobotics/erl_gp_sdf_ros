@@ -26,8 +26,8 @@
         <param name="double_precision" value="$(eval precision == 'double')" />
         <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf)/config/gazebo/$(arg surf_mapping_method)/surf_mapping_$(arg precision).yaml" />
         <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf)/config/gazebo/$(arg surf_mapping_method)/sdf_mapping_$(arg precision).yaml" />
-        <param name="scan_topic" value="/gazebo_room_2d_node/scan" />
-        <param name="scan_frame_setting_file" value="$(find erl_gp_sdf)/config/gazebo/lidar_frame_2d.yaml" />
+        <param name="scan/topic" value="/gazebo_room_2d_node/scan" />
+        <param name="scan/frame_setting_file" value="$(find erl_gp_sdf)/config/gazebo/lidar_frame_2d.yaml" />
     </node>
     <group if="$(arg visualize_sdf)">
         <node pkg="erl_gp_sdf_ros" type="sdf_visualization_node" name="sdf_visualization_node" output="screen">

@@ -180,17 +180,17 @@ def generate_launch_description():
                         "double_precision": precision == "double",
                         "surface_mapping_setting_file": surf_mapping_config,
                         "sdf_mapping_setting_file": sdf_mapping_config,
-                        "use_odom": False,
+                        "odom.enabled": False,
                         "world_frame": world_frame,
                         "sensor_frame": sensor_frame,
-                        "scan_topic.path": "scan",  # under the robot namespace
-                        "scan_topic.qos_reliability": "best_effort",  # pointcloud_to_laserscan publishes with best effort reliability
-                        "scan_type": "laser",
-                        "scan_frame_setting_file": scan_frame_config,
-                        "scan_stride": 1,
-                        "convert_scan_to_points": surf_mapping_method == "bayesian_hilbert",
-                        "scan_in_local_frame": True,
-                        "publish_tree": True,
+                        "scan.topic.path": "scan",  # under the robot namespace
+                        "scan.topic.qos_reliability": "best_effort",  # pointcloud_to_laserscan publishes with best effort reliability
+                        "scan.type": "laser",
+                        "scan.frame_setting_file": scan_frame_config,
+                        "scan.stride": 1,
+                        "scan.convert_to_points": surf_mapping_method == "bayesian_hilbert",
+                        "scan.in_local_frame": True,
+                        "publish_tree.enabled": True,
                     },
                 ],
                 # remappings=tf_remaps,

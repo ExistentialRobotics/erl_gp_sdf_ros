@@ -18,25 +18,25 @@
         <rosparam command="load"
             file="$(find erl_gp_sdf_ros)/config/ros1/$(arg surf_mapping_method)_float_3d.yaml" />
         <rosparam command="load" file="$(find erl_gp_sdf_ros)/config/ros1/use_lidar_frame_3d_float.yaml" />
-        <param name="scan_frame_setting_file" value="" />
+        <param name="scan/frame_setting_file" value="" />
         <param name="map_dim" value="3" />
         <param name="double_precision" value="false" />
         <param name="surface_mapping_setting_file"
             value="$(find erl_gp_sdf)/config/newer_college/$(arg surf_mapping_method)/surf_mapping_float_scale0.1.yaml" />
         <param name="sdf_mapping_setting_file"
             value="$(find erl_gp_sdf)/config/newer_college/$(arg surf_mapping_method)/sdf_mapping_float.yaml" />
-        <param name="use_odom" value="false" />
-        <param name="odom_topic" value="/robot/dlio/odom_node/odom" />
-        <param name="odom_msg_type" value="odometry" />
+        <param name="odom/enabled" value="false" />
+        <param name="odom/topic" value="/robot/dlio/odom_node/odom" />
+        <param name="odom/msg_type" value="odometry" />
         <param name="world_frame" value="robot/odom" />
         <param name="sensor_frame" value="robot/dlio/os_sensor" />
-        <param name="scan_topic" value="/robot/dlio/odom_node/pointcloud/deskewed" />
-        <param name="scan_type" value="point_cloud" />
-        <param name="scan_stride" value="1" />
-        <param name="convert_scan_to_points" value="$(eval surf_mapping_method == 'bayesian_hilbert')" />
-        <!-- <param name="scan_in_local_frame" value="true" /> -->
-        <param name="scan_in_local_frame" value="false" />
-        <param name="publish_tree" value="true" />
+        <param name="scan/topic" value="/robot/dlio/odom_node/pointcloud/deskewed" />
+        <param name="scan/type" value="point_cloud" />
+        <param name="scan/stride" value="1" />
+        <param name="scan/convert_to_points" value="$(eval surf_mapping_method == 'bayesian_hilbert')" />
+        <!-- <param name="scan/in_local_frame" value="true" /> -->
+        <param name="scan/in_local_frame" value="false" />
+        <param name="publish_tree/enabled" value="true" />
     </node>
 
     <group if="$(arg visualize_sdf)">

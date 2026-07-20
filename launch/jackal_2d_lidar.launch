@@ -56,18 +56,18 @@
             value="$(find erl_gp_sdf_ros)/config/jackal_2d/$(arg surf_mapping_method)/surf_mapping_$(arg precision).yaml" />
         <param name="sdf_mapping_setting_file"
             value="$(find erl_gp_sdf_ros)/config/jackal_2d/$(arg surf_mapping_method)/sdf_mapping_$(arg precision).yaml" />
-        <param name="use_odom" value="false" />
+        <param name="odom/enabled" value="false" />
         <param name="world_frame" value="$(arg world_frame)" />
         <param name="sensor_frame" value="$(arg sensor_frame)" />
-        <param name="scan_topic" value="/scan" />
-        <param name="scan_type" value="laser" />
-        <param name="scan_frame_setting_file"
+        <param name="scan/topic" value="/scan" />
+        <param name="scan/type" value="laser" />
+        <param name="scan/frame_setting_file"
             value="$(find erl_gp_sdf_ros)/config/jackal_2d/lidar_frame_2d.yaml" />
-        <param name="scan_stride" value="1" />
-        <param name="convert_scan_to_points"
+        <param name="scan/stride" value="1" />
+        <param name="scan/convert_to_points"
             value="$(eval surf_mapping_method == 'bayesian_hilbert')" />
-        <param name="scan_in_local_frame" value="true" />
-        <param name="publish_tree" value="true" />
+        <param name="scan/in_local_frame" value="true" />
+        <param name="publish_tree/enabled" value="true" />
     </node>
 
     <group if="$(arg visualize_sdf)">

@@ -75,7 +75,7 @@ def generate_launch_description():
         sdf_mapping_config = os.path.join(
             erl_gp_sdf_share, "config", "gazebo", surf_mapping_method, f"sdf_mapping_{precision}.yaml"
         )
-        scan_frame_config = os.path.join(pkg_share, "config", "lidar_frame_2d_gazebo.yaml")
+        scan_frame_config = os.path.join(pkg_share, "config", "jackal_2d", "lidar_frame_2d.yaml")
 
         return [
             Node(
@@ -91,19 +91,19 @@ def generate_launch_description():
                         "double_precision": precision == "double",
                         "surface_mapping_setting_file": surf_mapping_config,
                         "sdf_mapping_setting_file": sdf_mapping_config,
-                        "use_odom": False,
-                        "odom_topic.path": "/dlio/odom_node/odom",
-                        "odom_msg_type": "odometry",
+                        "odom.enabled": False,
+                        "odom.topic.path": "/dlio/odom_node/odom",
+                        "odom.msg_type": "odometry",
                         "world_frame": world_frame,
                         "sensor_frame": sensor_frame,
-                        "scan_topic.path": "/scan",
-                        "scan_type": "laser",
-                        "scan_frame_setting_file": scan_frame_config,
-                        "scan_stride": 1,
-                        "convert_scan_to_points": surf_mapping_method == "bayesian_hilbert",
-                        "scan_in_local_frame": True,
-                        "depth_scale": 0.001,
-                        "publish_tree": True,
+                        "scan.topic.path": "/scan",
+                        "scan.type": "laser",
+                        "scan.frame_setting_file": scan_frame_config,
+                        "scan.stride": 1,
+                        "scan.convert_to_points": surf_mapping_method == "bayesian_hilbert",
+                        "scan.in_local_frame": True,
+                        "scan.depth_scale": 0.001,
+                        "publish_tree.enabled": True,
                     },
                 ],
                 remappings=tf_remaps,

@@ -18,9 +18,15 @@ RUN cp /etc/apt/sources.list /etc/apt/sources.list.backup &&\
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone && \
     DEBIAN_FRONTEND=noninteractive apt update && apt install -y locales && locale-gen en_US.UTF-8
 
+# GUI and visualization (lets rviz2 / GUIs render from inside the container).
+# libgl1-mesa-glx (GLX/libGL) + libgl1-mesa-dri (DRI drivers, incl. swrast) are both needed for GL rendering.
 RUN DEBIAN_FRONTEND=noninteractive apt update -y && apt install -y \
     software-properties-common \
-    curl
+    curl \
+    mesa-utils \
+    libgl1-mesa-glx \
+    libgl1-mesa-dri \
+    x11-apps
 
 RUN add-apt-repository universe
 RUN curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo $VERSION_CODENAME)_all.deb" && dpkg -i /tmp/ros2-apt-source.deb && rm /tmp/ros2-apt-source.deb
