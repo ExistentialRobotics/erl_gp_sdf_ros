@@ -117,6 +117,7 @@ Performs real-time SDF mapping using Gaussian Process regression. The node subsc
 
 **Published Services:**
 - `sdf_query` (erl_gp_sdf_msgs/SdfQuery): Query SDF values, gradients, and uncertainties at specified points
+- `occ_query` (erl_gp_sdf_msgs/OccQuery): Query occupancy probabilities (or log-odds) and their gradients at specified points
 - `save_map` (erl_gp_sdf_msgs/SaveMap): Save the current SDF map to file
 
 **Key Parameters:**
@@ -158,6 +159,37 @@ Performs real-time SDF mapping using Gaussian Process regression. The node subsc
 - `publish_surface_points` (bool): Whether to publish surface points (default: false)
 - `publish_surface_points_topic` (string): Topic name for surface points (default: "surface_points")
 - `publish_surface_points_frequency` (double): Publishing frequency for surface points in Hz (default: 5.0)
+
+*Unobserved Space Configuration:*
+
+By default `occ_query` reports whatever the mapping frontend uses as its prior for space it has
+never seen (`unknown_log_odds` in the surface mapping setting). Most configurations use a free
+prior, so unobserved space is reported as confidently free and a planner consuming the resulting
+`nav_msgs/OccupancyGrid` will happily route straight through it. The `unobserved_space` parameter
+group changes that:
+
+- `unobserved_space.mode` (string): How unobserved cells are reported (default: `"prior"`)
+  - `"prior"`: report the frontend's unknown-space prior (previous behavior)
+  - `"unknown"`: report NaN, which `occ_visualization_node` publishes as `-1`, the value nav2
+    interprets as unknown
+  - `"occupied"`: report fully occupied, so planners refuse to route through space that has never
+    been seen
+  - `"free"`: report fully free
+- `unobserved_space.uncertainty_threshold` (double): Cells whose occupancy probability is within
+  this margin of 0.5 are also reported according to `mode`, i.e. they are too uncertain to be
+  trusted as an observation. Must be in `[0, 0.5]`. Cells that were never observed at all are
+  detected independently of this value, so the default of `0.0` reports only those (default: 0.0)
+- `unobserved_space.saturated_log_odds` (double): Magnitude of the log-odds reported for an
+  unobserved cell when `mode` is `"occupied"` or `"free"` and the query is made in `"logodd"` mode.
+  `"prob"` mode reports 1.0 / 0.0 instead (default: 100.0)
+
+For the `BayesianHilbertSurfaceMapping` frontend, unobserved cells are recovered by comparing the
+prediction against the prior value the mapper pre-fills them with. This cannot separate unobserved
+space from an observation that happens to land on exactly the same value, which is possible when
+the prior saturates (`unknown_log_odds: -100` gives a probability of exactly 0). Combine `mode`
+with `uncertainty_threshold`, or use a non-saturating prior, if that distinction matters. The
+`GpOccSurfaceMapping` frontend detects unobserved cells exactly, from the absence of an occupancy
+tree node.
 
 ### 2. `sdf_visualization_node`
 

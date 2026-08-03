@@ -51,6 +51,20 @@ sdf_mapping_node:
             path: sdf_query
         occ_query_service:
             path: occ_query
+        unobserved_space:
+            # how occ_query reports space that the map has not observed:
+            #   prior: the unknown-space prior of the mapping frontend (previous behavior). With a free
+            #          prior (unknown_log_odds: -100) unseen space looks confidently free to a planner.
+            #   unknown: NaN, which occ_visualization_node publishes as -1 (nav2 "unknown")
+            #   occupied: fully occupied, so a planner refuses to route through unseen space
+            #   free: fully free
+            mode: prior
+            # also report cells whose occupancy probability is within this margin of 0.5, i.e. cells too
+            # uncertain to trust as an observation. In [0, 0.5]; 0 reports only never-observed cells.
+            uncertainty_threshold: 0.0
+            # |log-odds| reported for an unobserved cell when mode is "occupied" or "free" and the query
+            # is made in "logodd" mode ("prob" mode reports 1.0 / 0.0 instead)
+            saturated_log_odds: 100.0
         save_map_service:
             path: save_map
         load_map_service:

@@ -9,6 +9,7 @@
 #include "erl_geometry/depth_frame_3d.hpp"
 #include "erl_geometry/lidar_frame_2d.hpp"
 #include "erl_geometry/lidar_frame_3d.hpp"
+#include "erl_geometry/logodd.hpp"
 #include "erl_geometry_msgs/msg/mesh_msg.hpp"
 #include "erl_geometry_msgs/ros2/occupancy_tree_msg.hpp"
 #include "erl_gp_sdf/bayesian_hilbert_surface_mapping.hpp"
@@ -39,6 +40,9 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
+
+#include <cmath>
+#include <limits>
 
 using namespace erl::common;
 using namespace erl::common::ros_params;
@@ -217,6 +221,34 @@ struct PublishOccupancyGridParams : Yamlable<PublishOccupancyGridParams> {
         ERL_REFLECT_MEMBER(PublishOccupancyGridParams, height_map_projector));
 };
 
+struct UnobservedSpaceParams : Yamlable<UnobservedSpaceParams> {
+    // how the occ_query service reports a cell that the map has not observed:
+    //   "prior"    - report the prior the mapping frontend uses for unknown space. This is the
+    //                legacy behavior: with a free prior (e.g. unknown_log_odds: -100) every
+    //                unobserved cell looks like confidently free space to a planner.
+    //   "unknown"  - report NaN. occ_visualization_node turns NaN into -1, the value nav2
+    //                interprets as unknown.
+    //   "occupied" - report fully occupied, so a planner refuses to route through space that
+    //                has never been seen.
+    //   "free"     - report fully free.
+    std::string mode = "prior";
+    // a cell whose occupancy probability is within this margin of 0.5 is also reported
+    // according to `mode`, i.e. it is too uncertain to be trusted as an observation. Cells that
+    // were never observed at all are detected independently of this value, so 0 (the default)
+    // only reports those. Must be in [0, 0.5]; 0.5 marks every cell unobserved.
+    double uncertainty_threshold = 0.0;
+    // magnitude of the log-odds reported for an unobserved cell when `mode` is "occupied" or
+    // "free" and the query is made in "logodd" mode. In "prob" mode 1.0 / 0.0 are reported
+    // instead. Must be positive.
+    double saturated_log_odds = 100.0;
+
+    ERL_REFLECT_SCHEMA(
+        UnobservedSpaceParams,
+        ERL_REFLECT_MEMBER(UnobservedSpaceParams, mode),
+        ERL_REFLECT_MEMBER(UnobservedSpaceParams, uncertainty_threshold),
+        ERL_REFLECT_MEMBER(UnobservedSpaceParams, saturated_log_odds));
+};
+
 struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     // setting class for the surface mapping. For example, to use
     // erl::gp_sdf::GpOccSurfaceMapping<float, 2>, you should use its setting class
@@ -254,6 +286,8 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
     Ros2TopicParams sdf_query_service{"sdf_query", "services"};
     // parameters of the service to query occupancy values
     Ros2TopicParams occ_query_service{"occ_query", "services"};
+    // grouped parameters controlling how occ_query reports unobserved space.
+    UnobservedSpaceParams unobserved_space;
     // parameters of the service to save the map
     Ros2TopicParams save_map_service{"save_map", "services"};
     // parameters of the service to load the map
@@ -280,6 +314,7 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, query_time_topic),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, sdf_query_service),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, occ_query_service),
+        ERL_REFLECT_MEMBER(SdfMappingNodeConfig, unobserved_space),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_map_service),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, load_map_service),
         ERL_REFLECT_MEMBER(SdfMappingNodeConfig, save_mesh_service));
@@ -406,6 +441,26 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
         }
         if (occ_query_service.path.empty()) {
             RCLCPP_WARN(logger, "occ_query_service.path is empty");
+            return false;
+        }
+        if (unobserved_space.mode != "prior" && unobserved_space.mode != "unknown" &&
+            unobserved_space.mode != "occupied" && unobserved_space.mode != "free") {
+            RCLCPP_WARN(
+                logger,
+                "unobserved_space.mode must be 'prior', 'unknown', 'occupied' or 'free', got '%s'",
+                unobserved_space.mode.c_str());
+            return false;
+        }
+        if (unobserved_space.uncertainty_threshold < 0.0 ||
+            unobserved_space.uncertainty_threshold > 0.5) {
+            RCLCPP_WARN(
+                logger,
+                "unobserved_space.uncertainty_threshold must be in [0, 0.5], got %f",
+                unobserved_space.uncertainty_threshold);
+            return false;
+        }
+        if (unobserved_space.saturated_log_odds <= 0.0) {
+            RCLCPP_WARN(logger, "unobserved_space.saturated_log_odds must be positive");
             return false;
         }
         if (save_map_service.path.empty()) {
@@ -2012,6 +2067,35 @@ private:
         erl::common::BlockTimerRecords::PrintRecords();
     }
 
+    /// True if occ_query should report unobserved cells with something other than the prior of
+    /// the mapping frontend.
+    [[nodiscard]] bool
+    OverrideUnobservedSpace() const {
+        return m_setting_.unobserved_space.mode != "prior";
+    }
+
+    /// Value that occ_query reports for a cell classified as unobserved, expressed in the units
+    /// the request asked for.
+    [[nodiscard]] double
+    UnobservedSpaceValue(const bool is_logodd) const {
+        const auto &unobserved = m_setting_.unobserved_space;
+        if (unobserved.mode == "occupied") {
+            return is_logodd ? unobserved.saturated_log_odds : 1.0;
+        }
+        if (unobserved.mode == "free") { return is_logodd ? -unobserved.saturated_log_odds : 0.0; }
+        return std::numeric_limits<double>::quiet_NaN();  // "unknown"
+    }
+
+    /// True if `value` is too close to even odds to be trusted as an observation. `value` is a
+    /// probability when `is_logodd` is false and a log-odds otherwise.
+    [[nodiscard]] bool
+    IsTooUncertain(const double value, const bool is_logodd) const {
+        const double threshold = m_setting_.unobserved_space.uncertainty_threshold;
+        if (threshold <= 0.0) { return false; }
+        const double prob = is_logodd ? erl::geometry::logodd::Probability(value) : value;
+        return std::abs(prob - 0.5) <= threshold;
+    }
+
     template<typename BhmType>
     void
     FillBhmSdfQueryResponse(
@@ -2024,19 +2108,39 @@ private:
 
         VectorX prob_occupied(n);
         MatrixDX gradients(Dim, n);
+        const bool is_logodd = (mode == "logodd");
 
         bhm->Predict(
             positions,
-            /*logodd=*/(mode == "logodd"),
+            /*logodd=*/is_logodd,
             /*compute_gradient=*/compute_gradient,
             /*gradient_with_sigmoid=*/false,
             /*parallel=*/true,
             prob_occupied,
             gradients);
 
+        // Predict() leaves points it has no observation for at the unknown-space prior it
+        // pre-filled the buffer with, and reports no per-point observation flag. Recovering the
+        // unobserved cells therefore means comparing against that exact prior. Note that this
+        // cannot separate unobserved space from an observation that happens to land on the same
+        // value, which is possible when the prior saturates (unknown_log_odds: +/-100 gives a
+        // probability of exactly 1 or 0).
+        Dtype prior = bhm->GetSetting()->unknown_log_odds;
+        if (!is_logodd) { prior = erl::geometry::logodd::Probability(prior); }
+        const bool override_unobserved = OverrideUnobservedSpace();
+        const double unobserved_value = UnobservedSpaceValue(is_logodd);
+
         // Fill results
         res->results.resize(n);
-        for (int i = 0; i < n; ++i) { res->results[i] = static_cast<double>(prob_occupied[i]); }
+        for (int i = 0; i < n; ++i) {
+            const Dtype value = prob_occupied[i];
+            if (override_unobserved &&
+                (value == prior || IsTooUncertain(static_cast<double>(value), is_logodd))) {
+                res->results[i] = unobserved_value;
+                continue;
+            }
+            res->results[i] = static_cast<double>(value);
+        }
 
         // Fill gradients if requested
         res->gradients.clear();
@@ -2109,7 +2213,21 @@ private:
 
             res->results.resize(n);
             const bool is_logodd = (mode == "logodd");
-#pragma omp parallel for default(none) shared(res, tree, positions, n, is_logodd)
+            const bool override_unobserved = OverrideUnobservedSpace();
+            const double unobserved_value = UnobservedSpaceValue(is_logodd);
+            // read out of m_setting_ here: the loop body must not touch `this` under
+            // `default(none)`.
+            const double uncertainty_threshold =
+                override_unobserved ? m_setting_.unobserved_space.uncertainty_threshold : 0.0;
+#pragma omp parallel for default(none) \
+    shared(res,                        \
+               tree,                   \
+               positions,              \
+               n,                      \
+               is_logodd,              \
+               override_unobserved,    \
+               unobserved_value,       \
+               uncertainty_threshold)
             for (int i = 0; i < n; ++i) {
                 const auto *node = [&]() {
                     if constexpr (Dim == 2) {
@@ -2119,17 +2237,25 @@ private:
                     }
                 }();
                 if (node == nullptr) {
-                    // Unknown space
-                    if (is_logodd) {
+                    // Unknown space: no tree node covers this point, so it has never been
+                    // observed.
+                    if (override_unobserved) {
+                        res->results[i] = unobserved_value;
+                    } else if (is_logodd) {
                         res->results[i] = 0.0;
                     } else {
                         res->results[i] = 0.5;
                     }
                 } else {
-                    if (is_logodd) {
-                        res->results[i] = static_cast<double>(node->GetLogOdds());
+                    const double value = is_logodd ? static_cast<double>(node->GetLogOdds())
+                                                   : static_cast<double>(node->GetOccupancy());
+                    const double prob =
+                        is_logodd ? erl::geometry::logodd::Probability(value) : value;
+                    if (uncertainty_threshold > 0.0 &&
+                        std::abs(prob - 0.5) <= uncertainty_threshold) {
+                        res->results[i] = unobserved_value;
                     } else {
-                        res->results[i] = static_cast<double>(node->GetOccupancy());
+                        res->results[i] = value;
                     }
                 }
             }
