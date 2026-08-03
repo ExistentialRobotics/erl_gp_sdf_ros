@@ -162,19 +162,24 @@ Performs real-time SDF mapping using Gaussian Process regression. The node subsc
 
 *Unobserved Space Configuration:*
 
-By default `occ_query` reports whatever the mapping frontend uses as its prior for space it has
-never seen (`unknown_log_odds` in the surface mapping setting). Most configurations use a free
-prior, so unobserved space is reported as confidently free and a planner consuming the resulting
-`nav_msgs/OccupancyGrid` will happily route straight through it. The `unobserved_space` parameter
-group changes that:
+By default, every output of this node reports space it has never seen as if it were free. `occ_query`
+returns whatever the mapping frontend uses as its prior for unknown space (`unknown_log_odds` in the
+surface mapping setting, usually a free prior); `sdf_query` returns a distance from `Test()` that
+carries no support at all where no GP was found; and the projected occupancy grid returns `-1`, which
+many planners are configured to treat as traversable. A planner consuming any of them will happily
+route straight through unmapped space. The `unobserved_space` parameter group changes that, and
+applies to all three outputs at once:
 
-- `unobserved_space.mode` (string): How unobserved cells are reported (default: `"prior"`)
-  - `"prior"`: report the frontend's unknown-space prior (previous behavior)
-  - `"unknown"`: report NaN, which `occ_visualization_node` publishes as `-1`, the value nav2
-    interprets as unknown
+- `unobserved_space.mode` (string): How unobserved space is reported (default: `"prior"`)
+  - `"prior"`: report whatever the mapping frontend leaves there (previous behavior)
+  - `"unknown"`: NaN from the query services — `occ_visualization_node` publishes NaN as `-1` — and
+    `-1` in the projected occupancy grid, the value nav2 interprets as unknown
   - `"occupied"`: report fully occupied, so planners refuse to route through space that has never
     been seen
   - `"free"`: report fully free
+
+*Occupancy (`occ_query`):*
+
 - `unobserved_space.uncertainty_threshold` (double): Cells whose occupancy probability is within
   this margin of 0.5 are also reported according to `mode`, i.e. they are too uncertain to be
   trusted as an observation. Must be in `[0, 0.5]`. Cells that were never observed at all are
@@ -183,13 +188,28 @@ group changes that:
   unobserved cell when `mode` is `"occupied"` or `"free"` and the query is made in `"logodd"` mode.
   `"prob"` mode reports 1.0 / 0.0 instead (default: 100.0)
 
-For the `BayesianHilbertSurfaceMapping` frontend, unobserved cells are recovered by comparing the
-prediction against the prior value the mapper pre-fills them with. This cannot separate unobserved
-space from an observation that happens to land on exactly the same value, which is possible when
-the prior saturates (`unknown_log_odds: -100` gives a probability of exactly 0). Combine `mode`
-with `uncertainty_threshold`, or use a non-saturating prior, if that distinction matters. The
-`GpOccSurfaceMapping` frontend detects unobserved cells exactly, from the absence of an occupancy
-tree node.
+Both frontends detect unobserved cells exactly, from the absence of a node in the occupancy tree.
+`BayesianHilbertSurfaceMapping` exposes no per-point observation flag through `Predict()` — it
+silently leaves unobserved points at the prior it pre-fills them with, which is indistinguishable
+from a real prediction of the same value — so the node repeats `Predict()`'s own tree lookup to
+identify them.
+
+*SDF (`sdf_query`):*
+
+- `unobserved_space.sdf_variance_threshold` (double): Distance variance at or above which a
+  prediction is not trusted as an observation, and is reported according to `mode`. Query points the
+  mapper found no usable GP for come back at its sentinel variance of `1e6` (divided by the surface
+  mapping `scaling` squared), so any value below that catches them; lower it to also reject
+  predictions that are merely uncertain (default: 1.0e5)
+- `unobserved_space.occupied_sdf` (double): Signed distance reported for an unobserved point when
+  `mode` is `"occupied"`. Negative places the point inside an obstacle (default: -1.0)
+- `unobserved_space.free_sdf` (double): Signed distance reported for an unobserved point when `mode`
+  is `"free"` (default: 1.0e3)
+
+The `uncertainty_threshold` above is an occupancy-probability margin and does not apply to the SDF;
+`sdf_variance_threshold` is the SDF's uncertainty knob. Neither applies to the projected occupancy
+grid, which carries no per-cell uncertainty — there `mode` alone decides how its unknown cells are
+published.
 
 ### 2. `sdf_visualization_node`
 

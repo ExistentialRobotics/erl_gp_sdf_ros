@@ -219,31 +219,47 @@ struct PublishOccupancyGridParams : Yamlable<PublishOccupancyGridParams> {
 };
 
 struct UnobservedSpaceParams : Yamlable<UnobservedSpaceParams> {
-    // how the occ_query service reports a cell that the map has not observed:
-    //   "prior"    - report the prior the mapping frontend uses for unknown space. This is the
-    //                legacy behavior: with a free prior (e.g. unknown_log_odds: -100) every
-    //                unobserved cell looks like confidently free space to a planner.
-    //   "unknown"  - report NaN. occ_visualization_node turns NaN into -1, the value nav2
-    //                interprets as unknown.
+    // how space that the map has not observed is reported. Applies to all three outputs that
+    // can hand unobserved space to a planner: the occ_query service, the sdf_query service, and
+    // the 2D occupancy grid projected from the 3D height map.
+    //   "prior"    - report whatever the mapping frontend leaves there. This is the legacy
+    //                behavior: with a free occupancy prior (e.g. unknown_log_odds: -100), or an
+    //                SDF prediction that is technically positive but has no support, unobserved
+    //                space looks like confidently free space to a planner.
+    //   "unknown"  - report NaN for the query services (occ_visualization_node turns NaN into
+    //                -1, the value nav2 interprets as unknown) and -1 for the occupancy grid.
     //   "occupied" - report fully occupied, so a planner refuses to route through space that
     //                has never been seen.
     //   "free"     - report fully free.
     std::string mode = "prior";
-    // a cell whose occupancy probability is within this margin of 0.5 is also reported
-    // according to `mode`, i.e. it is too uncertain to be trusted as an observation. Cells that
-    // were never observed at all are detected independently of this value, so 0 (the default)
-    // only reports those. Must be in [0, 0.5]; 0.5 marks every cell unobserved.
+    // occupancy: a cell whose occupancy probability is within this margin of 0.5 is also
+    // reported according to `mode`, i.e. it is too uncertain to be trusted as an observation.
+    // Cells that were never observed at all are detected independently of this value, so 0 (the
+    // default) only reports those. Must be in [0, 0.5]; 0.5 marks every cell unobserved.
     double uncertainty_threshold = 0.0;
-    // magnitude of the log-odds reported for an unobserved cell when `mode` is "occupied" or
-    // "free" and the query is made in "logodd" mode. In "prob" mode 1.0 / 0.0 are reported
-    // instead. Must be positive.
+    // occupancy: magnitude of the log-odds reported for an unobserved cell when `mode` is
+    // "occupied" or "free" and the query is made in "logodd" mode. In "prob" mode 1.0 / 0.0 are
+    // reported instead. Must be positive.
     double saturated_log_odds = 100.0;
+    // SDF: distance variance at or above which a prediction is not trusted as an observation.
+    // Query points that the mapper found no usable GP for come back at its sentinel variance of
+    // 1e6 (divided by the surface mapping `scaling` squared), so any value below that catches
+    // them; lower it to also reject predictions that are merely uncertain. Must be positive.
+    double sdf_variance_threshold = 1.0e5;
+    // SDF: signed distance reported for an unobserved point when `mode` is "occupied". Negative
+    // places the point inside an obstacle.
+    double occupied_sdf = -1.0;
+    // SDF: signed distance reported for an unobserved point when `mode` is "free".
+    double free_sdf = 1.0e3;
 
     ERL_REFLECT_SCHEMA(
         UnobservedSpaceParams,
         ERL_REFLECT_MEMBER(UnobservedSpaceParams, mode),
         ERL_REFLECT_MEMBER(UnobservedSpaceParams, uncertainty_threshold),
-        ERL_REFLECT_MEMBER(UnobservedSpaceParams, saturated_log_odds));
+        ERL_REFLECT_MEMBER(UnobservedSpaceParams, saturated_log_odds),
+        ERL_REFLECT_MEMBER(UnobservedSpaceParams, sdf_variance_threshold),
+        ERL_REFLECT_MEMBER(UnobservedSpaceParams, occupied_sdf),
+        ERL_REFLECT_MEMBER(UnobservedSpaceParams, free_sdf));
 };
 
 struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
@@ -446,6 +462,10 @@ struct SdfMappingNodeConfig : public Yamlable<SdfMappingNodeConfig> {
         }
         if (unobserved_space.saturated_log_odds <= 0.0) {
             ROS_WARN("unobserved_space.saturated_log_odds must be positive");
+            return false;
+        }
+        if (unobserved_space.sdf_variance_threshold <= 0.0) {
+            ROS_WARN("unobserved_space.sdf_variance_threshold must be positive");
             return false;
         }
         if (save_map_service.empty()) {
@@ -1809,6 +1829,20 @@ private:
             return false;
         }
 
+        // Test() leaves a query point it found no usable GP for at its sentinel variance, and at
+        // a default distance that says nothing about the surroundings. Points that did get a
+        // prediction can still be unsupported enough that the distance is meaningless. Treat both
+        // as unobserved so that unseen space is not handed to a planner as a positive clearance.
+        if (OverrideUnobservedSpace()) {
+            const auto threshold =
+                static_cast<Dtype>(m_setting_.unobserved_space.sdf_variance_threshold);
+            const auto unobserved_distance = static_cast<Dtype>(UnobservedSdfValue());
+            for (int i = 0; i < n; ++i) {
+                if (variances(0, i) < threshold) { continue; }
+                distances[i] = unobserved_distance;
+            }
+        }
+
         // convert to double for the response
         Eigen::VectorXd distances_d;
         Eigen::MatrixXd gradients_d;
@@ -1909,14 +1943,22 @@ private:
         return std::numeric_limits<double>::quiet_NaN();  // "unknown"
     }
 
-    /// True if `value` is too close to even odds to be trusted as an observation. `value` is a
-    /// probability when `is_logodd` is false and a log-odds otherwise.
-    [[nodiscard]] bool
-    IsTooUncertain(const double value, const bool is_logodd) const {
-        const double threshold = m_setting_.unobserved_space.uncertainty_threshold;
-        if (threshold <= 0.0) { return false; }
-        const double prob = is_logodd ? erl::geometry::logodd::Probability(value) : value;
-        return std::abs(prob - 0.5) <= threshold;
+    /// Signed distance that sdf_query reports for a point classified as unobserved.
+    [[nodiscard]] double
+    UnobservedSdfValue() const {
+        const auto &unobserved = m_setting_.unobserved_space;
+        if (unobserved.mode == "occupied") { return unobserved.occupied_sdf; }
+        if (unobserved.mode == "free") { return unobserved.free_sdf; }
+        return std::numeric_limits<double>::quiet_NaN();  // "unknown"
+    }
+
+    /// Cell value that the projected occupancy grid uses for an unobserved cell.
+    [[nodiscard]] int8_t
+    UnobservedGridValue() const {
+        const auto &unobserved = m_setting_.unobserved_space;
+        if (unobserved.mode == "occupied") { return 100; }
+        if (unobserved.mode == "free") { return 0; }
+        return -1;  // "unknown"
     }
 
     template<typename BhmType>
@@ -1942,27 +1984,49 @@ private:
             prob_occupied,
             gradients);
 
-        // Predict() leaves points it has no observation for at the unknown-space prior it
-        // pre-filled the buffer with, and reports no per-point observation flag. Recovering the
-        // unobserved cells therefore means comparing against that exact prior. Note that this
-        // cannot separate unobserved space from an observation that happens to land on the same
-        // value, which is possible when the prior saturates (unknown_log_odds: +/-100 gives a
-        // probability of exactly 1 or 0).
-        Dtype prior = bhm->GetSetting()->unknown_log_odds;
-        if (!is_logodd) { prior = erl::geometry::logodd::Probability(prior); }
-        const bool override_unobserved = OverrideUnobservedSpace();
-        const double unobserved_value = UnobservedSpaceValue(is_logodd);
-
         // Fill results
         res.results.resize(n);
-        for (int i = 0; i < n; ++i) {
-            const Dtype value = prob_occupied[i];
-            if (override_unobserved &&
-                (value == prior || IsTooUncertain(static_cast<double>(value), is_logodd))) {
-                res.results[i] = unobserved_value;
-                continue;
+        if (!OverrideUnobservedSpace()) {
+            for (int i = 0; i < n; ++i) { res.results[i] = static_cast<double>(prob_occupied[i]); }
+        } else {
+            // Predict() reports no per-point observation flag: it silently leaves points it has
+            // no observation for at the unknown-space prior it pre-filled the buffer with, which
+            // is indistinguishable from a real prediction of the same value (and the prior does
+            // saturate to exactly 0 or 1 under the common unknown_log_odds: -/+100). It skips
+            // exactly the points that fall outside the occupancy tree or have no node in it, so
+            // repeat that test here to identify them for certain. Predict() scales its input, so
+            // scale here too.
+            const auto tree = bhm->GetTree();
+            const Dtype scaling = bhm->GetScaling();
+            const double unobserved_value = UnobservedSpaceValue(is_logodd);
+            const double uncertainty_threshold = m_setting_.unobserved_space.uncertainty_threshold;
+            // the tree must not be mutated by an incoming scan while it is searched.
+            const auto lock = bhm->GetLockGuard();
+            (void) lock;
+#pragma omp parallel for default(none) \
+    shared(res,                        \
+               tree,                   \
+               scaling,                \
+               positions,              \
+               prob_occupied,          \
+               n,                      \
+               is_logodd,              \
+               unobserved_value,       \
+               uncertainty_threshold)
+            for (int i = 0; i < n; ++i) {
+                typename BhmType::Key key;
+                const VectorD point = positions.col(i) * scaling;
+                const bool observed =
+                    tree->CoordToKeyChecked(point, key) && tree->Search(key) != nullptr;
+                const auto value = static_cast<double>(prob_occupied[i]);
+                const double prob = is_logodd ? erl::geometry::logodd::Probability(value) : value;
+                if (!observed || (uncertainty_threshold > 0.0 &&
+                                  std::abs(prob - 0.5) <= uncertainty_threshold)) {
+                    res.results[i] = unobserved_value;
+                } else {
+                    res.results[i] = value;
+                }
             }
-            res.results[i] = static_cast<double>(value);
         }
 
         // Fill gradients if requested
@@ -2375,6 +2439,16 @@ private:
             m_height_map_projector_->GetOccupancyGrid(occupancy_data, grid_info);
 
             if (occupancy_data.empty()) { return; }
+
+            // The projector reports -1 for cells it has no height information for. Re-map them so
+            // that space the robot has never seen is not handed to a planner as unknown, which
+            // many planners are configured to treat as traversable.
+            if (OverrideUnobservedSpace()) {
+                const int8_t unobserved_cell = UnobservedGridValue();
+                for (auto &cell: occupancy_data) {
+                    if (cell < 0) { cell = unobserved_cell; }
+                }
+            }
 
             // Internal layout: rows index X, cols index Y, data[x * Ny + y] (X-major).
             // Nav layout:      width = X cells, height = Y cells, data[y * width + x] (Y-major).

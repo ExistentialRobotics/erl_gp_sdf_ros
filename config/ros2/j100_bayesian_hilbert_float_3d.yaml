@@ -52,10 +52,13 @@ j100/sdf_mapping_node:
         occ_query_service:
             path: occ_query
         unobserved_space:
-            # how occ_query reports space that the map has not observed:
-            #   prior: the unknown-space prior of the mapping frontend (previous behavior). With a free
-            #          prior (unknown_log_odds: -100) unseen space looks confidently free to a planner.
-            #   unknown: NaN, which occ_visualization_node publishes as -1 (nav2 "unknown")
+            # how occ_query, sdf_query and the projected occupancy grid report space that the map has
+            # not observed:
+            #   prior: whatever the mapping frontend leaves there (previous behavior). With a free
+            #          occupancy prior (unknown_log_odds: -100), or an SDF prediction with no support,
+            #          unseen space looks confidently free to a planner.
+            #   unknown: NaN from the query services (occ_visualization_node publishes NaN as -1) and -1
+            #            in the projected occupancy grid, the value nav2 reads as unknown
             #   occupied: fully occupied, so a planner refuses to route through unseen space
             #   free: fully free
             mode: prior
@@ -65,6 +68,13 @@ j100/sdf_mapping_node:
             # |log-odds| reported for an unobserved cell when mode is "occupied" or "free" and the query
             # is made in "logodd" mode ("prob" mode reports 1.0 / 0.0 instead)
             saturated_log_odds: 100.0
+            # sdf_query: distance variance at or above which a prediction is not trusted. Points with no
+            # usable GP come back at the mapper's 1e6 sentinel (divided by scaling^2)
+            sdf_variance_threshold: 1.0e5
+            # sdf_query: signed distance reported for an unobserved point when mode is "occupied"
+            occupied_sdf: -1.0
+            # sdf_query: signed distance reported for an unobserved point when mode is "free"
+            free_sdf: 1.0e3
         save_map_service:
             path: save_map
         load_map_service:
